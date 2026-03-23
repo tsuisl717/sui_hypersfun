@@ -1,0 +1,20 @@
+{
+  "name": "sui-hypersfun-tests",
+  "version": "1.0.0",
+  "description": "Test scripts for SUI HypersFun contracts",
+  "main": "test-buy-sell.js",
+  "scripts": {
+    "test": "node test-buy-sell.js test",
+    "create": "node test-buy-sell.js create",
+    "status": "node test-buy-sell.js status",
+    "buy": "node test-buy-sell.js buy",
+    "sell": "node test-buy-sell.js sell"
+  },
+  "dependencies": {
+    "@cetusprotocol/aggregator-sdk": "^1.4.6",
+    "@cetusprotocol/cetus-sui-clmm-sdk": "^5.4.0",
+    "@mysten/sui": "^1.16.0",
+    "bn.js": "^5.2.3",
+    "dotenv": "^16.3.1"
+  }
+}
