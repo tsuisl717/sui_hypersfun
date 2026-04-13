@@ -120,6 +120,7 @@ export const TRADING_PAIRS = [
     baseDecimals: 9,
     quoteDecimals: 6,
     poolKey: "SUI_DBUSDC",
+    poolId: "0x1c19362ca52b8ffd7a33cee805a67d40f31e6ba303753fd3a4cfdfacea7163a5",
   },
   {
     name: "DEEP/SUI",
@@ -130,6 +131,7 @@ export const TRADING_PAIRS = [
     baseDecimals: 9,
     quoteDecimals: 9,
     poolKey: "DEEP_SUI",
+    poolId: "0x48c95963e9eac37a316b7ae04a0deb761bcdcc2b67912374d6036e7f0e9bae9f",
   },
   {
     name: "DEEP/DBUSDC",
@@ -140,5 +142,6 @@ export const TRADING_PAIRS = [
     baseDecimals: 9,
     quoteDecimals: 6,
     poolKey: "DEEP_DBUSDC",
+    poolId: "0xe86b991f8632217505fd859445f9803967ac84a9d4a1219065bf191fcb74b622",
   },
 ];
