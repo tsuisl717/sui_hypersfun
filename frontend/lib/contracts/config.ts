@@ -108,16 +108,18 @@ export const DEEPBOOK = {
 };
 
 // Supported trading pairs for DeepBook
+// Note: DeepBook testnet uses DBUSDC, not our custom USDC.
+// Leader trading via DeepBook requires DBUSDC-denominated pools.
 export const TRADING_PAIRS = [
   {
-    name: "SUI/USDC",
+    name: "SUI/DBUSDC",
     base: "SUI",
-    quote: "USDC",
+    quote: "DBUSDC",
     baseType: DEEPBOOK.SUI,
     quoteType: DEEPBOOK.DBUSDC,
     baseDecimals: 9,
     quoteDecimals: 6,
-    poolId: "", // To be filled with actual pool ID
+    poolKey: "SUI_DBUSDC",
   },
   {
     name: "DEEP/SUI",
@@ -127,6 +129,16 @@ export const TRADING_PAIRS = [
     quoteType: DEEPBOOK.SUI,
     baseDecimals: 9,
     quoteDecimals: 9,
-    poolId: "",
+    poolKey: "DEEP_SUI",
+  },
+  {
+    name: "DEEP/DBUSDC",
+    base: "DEEP",
+    quote: "DBUSDC",
+    baseType: DEEPBOOK.DEEP,
+    quoteType: DEEPBOOK.DBUSDC,
+    baseDecimals: 9,
+    quoteDecimals: 6,
+    poolKey: "DEEP_DBUSDC",
   },
 ];

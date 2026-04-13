@@ -120,8 +120,37 @@ export default function LeaderTradingPanel({
         }
       }
 
-      // Find Trading Module (shared object)
-      // This would typically be done via events or stored config
+      // Find Trading Module (shared object) via TradingVaultCreated events
+      const events = await client.queryEvents({
+        query: {
+          MoveEventType: `${PACKAGE_ID}::${MODULES.TRADING}::TradingVaultCreated`,
+        },
+        limit: 50,
+      });
+
+      for (const event of events.data) {
+        const parsed = event.parsedJson as Record<string, unknown>;
+        if (parsed.vault_id === vaultId) {
+          // Found the event — get created objects from that transaction
+          const txDetails = await client.getTransactionBlock({
+            digest: event.id.txDigest,
+            options: { showObjectChanges: true },
+          });
+
+          const changes = txDetails.objectChanges || [];
+          for (const change of changes) {
+            if (
+              change.type === 'created' &&
+              'objectType' in change &&
+              change.objectType.includes('SuiTradingModule')
+            ) {
+              setTradingModuleId(change.objectId);
+              break;
+            }
+          }
+          break;
+        }
+      }
     } catch (e) {
       console.error('Error fetching leader objects:', e);
     }
