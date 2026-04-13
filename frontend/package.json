@@ -1,0 +1,34 @@
+{
+  "name": "sui-hypersfun",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3060",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@mysten/dapp-kit": "^0.14.0",
+    "@mysten/sui": "1.24.0",
+    "@tanstack/react-query": "^5.90.20",
+    "@tailwindcss/postcss": "^4.1.18",
+    "autoprefixer": "^10.4.23",
+    "lightweight-charts": "^5.1.0",
+    "lucide-react": "^0.563.0",
+    "next": "^16.1.5",
+    "postcss": "^8.5.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-icons": "^5.5.0",
+    "recharts": "^3.7.0",
+    "tailwindcss": "^4.1.18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "~5.8.2"
+  }
+}

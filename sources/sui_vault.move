@@ -1085,4 +1085,39 @@ module sui_hypersfun::sui_vault {
     ) {
         vault.twap_half_life = half_life;
     }
+
+    // ============ Trading Helper Functions ============
+    // These functions are called by sui_deepbook module for Leader trading
+
+    /// Extract USDC from vault for trading (called by sui_deepbook module)
+    /// NOTE: This is a friend function - only sui_deepbook can call it
+    public(package) fun extract_usdc_for_trading<USDC>(
+        vault: &mut SuiVault<USDC>,
+        amount: u64,
+        ctx: &mut TxContext,
+    ): Coin<USDC> {
+        assert!(balance::value(&vault.usdc_reserve) >= amount, E_INSUFFICIENT_LIQUIDITY);
+
+        let withdrawn = balance::split(&mut vault.usdc_reserve, amount);
+        coin::from_balance(withdrawn, ctx)
+    }
+
+    /// Deposit USDC back to vault after trading (called by sui_deepbook module)
+    public(package) fun deposit_usdc_from_trading<USDC>(
+        vault: &mut SuiVault<USDC>,
+        coin: Coin<USDC>,
+    ) {
+        let coin_balance = coin::into_balance(coin);
+        balance::join(&mut vault.usdc_reserve, coin_balance);
+    }
+
+    /// Get available USDC for trading (excluding pending sells)
+    public fun available_usdc_for_trading<USDC>(vault: &SuiVault<USDC>): u64 {
+        let total = balance::value(&vault.usdc_reserve);
+        if (total > vault.total_ps_usdc) {
+            total - vault.total_ps_usdc
+        } else {
+            0
+        }
+    }
 }
