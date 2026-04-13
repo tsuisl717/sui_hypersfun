@@ -6,10 +6,8 @@
 /// - Leader 可以用 USDC 交換其他資產
 /// - 所有資產留在 Vault 內，影響 NAV 計算
 /// - 實際 DeepBook 調用在 PTB 層面組合
+#[allow(lint(self_transfer))]
 module sui_hypersfun::sui_deepbook {
-    use sui::object::{Self, UID, ID};
-    use sui::tx_context::{Self, TxContext};
-    use sui::transfer;
     use sui::balance::{Self, Balance};
     use sui::coin::{Self, Coin};
     use sui::event;
@@ -25,7 +23,6 @@ module sui_hypersfun::sui_deepbook {
     const E_INVALID_AMOUNT: u64 = 3;
     const E_SWAP_EXPIRED: u64 = 4;
     const E_SLIPPAGE_EXCEEDED: u64 = 5;
-    const E_ASSET_NOT_FOUND: u64 = 6;
     const E_ALREADY_USED: u64 = 7;
 
     // ============ Structs ============
@@ -60,14 +57,6 @@ module sui_hypersfun::sui_deepbook {
         expires_at: u64,
         /// Used flag
         used: bool,
-    }
-
-    /// Price info for NAV calculation
-    public struct AssetPrice has store, copy, drop {
-        /// Price in USDC (6 decimals)
-        price: u64,
-        /// Last update timestamp
-        last_update: u64,
     }
 
     // ============ Events ============
@@ -109,7 +98,7 @@ module sui_hypersfun::sui_deepbook {
 
     /// Create an asset vault for holding a specific token type
     /// Leader creates this to enable trading that asset
-    public entry fun create_asset_vault<USDC, T>(
+    public fun create_asset_vault<USDC, T>(
         vault: &SuiVault<USDC>,
         leader_cap: &SuiLeaderCap,
         ctx: &mut TxContext,
@@ -118,7 +107,7 @@ module sui_hypersfun::sui_deepbook {
         assert!(sui_vault::leader_cap_vault_id(leader_cap) == object::id(vault), E_NOT_AUTHORIZED);
 
         let vault_id = object::id(vault);
-        let asset_type = type_name::get<T>();
+        let asset_type = type_name::with_defining_ids<T>();
 
         let asset_vault = AssetVault<T> {
             id: object::new(ctx),
@@ -144,7 +133,7 @@ module sui_hypersfun::sui_deepbook {
     // ============ Swap Authorization ============
 
     /// Leader authorizes a swap from USDC to another asset
-    public entry fun authorize_swap<USDC>(
+    public fun authorize_swap<USDC>(
         vault: &SuiVault<USDC>,
         leader_cap: &SuiLeaderCap,
         input_amount: u64,
@@ -350,7 +339,7 @@ module sui_hypersfun::sui_deepbook {
         // Normalize to 6 decimals (USDC precision)
         // value = balance * price / 10^asset_decimals
         let decimal_factor = pow10(asset_decimals);
-        (balance_val as u128) * (price_usdc as u128) / (decimal_factor as u128) as u64
+        ((balance_val as u128) * (price_usdc as u128) / (decimal_factor as u128)) as u64
     }
 
     /// Helper: 10^n

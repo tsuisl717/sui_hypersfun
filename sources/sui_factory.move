@@ -1,15 +1,11 @@
 /// SUI HypersFun - Factory Module
 /// 管理 Vault 創建、全域設定、Graduation Tiers
+#[allow(unused_field)]
 module sui_hypersfun::sui_factory {
-    use sui::object::{Self, UID, ID};
-    use sui::tx_context::{Self, TxContext};
-    use sui::transfer;
     use sui::table::{Self, Table};
     use sui::event;
     use sui::clock::{Self, Clock};
-    use sui::coin::{Self, Coin};
     use std::string::{Self, String};
-    use std::vector;
 
     use sui_hypersfun::sui_types::{
         Self,
@@ -21,7 +17,6 @@ module sui_hypersfun::sui_factory {
 
     // ============ Error Codes ============
 
-    const E_NOT_ADMIN: u64 = 1;
     const E_PAUSED: u64 = 2;
     const E_FEE_TOO_HIGH: u64 = 3;
     const E_INVALID_TIER: u64 = 4;
@@ -225,7 +220,7 @@ module sui_hypersfun::sui_factory {
     // ============ Admin Functions ============
 
     /// Set treasury address
-    public entry fun set_treasury(
+    public fun set_treasury(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
         new_treasury: address,
@@ -234,7 +229,7 @@ module sui_hypersfun::sui_factory {
     }
 
     /// Set creation fee
-    public entry fun set_creation_fee(
+    public fun set_creation_fee(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
         fee: u64,
@@ -243,7 +238,7 @@ module sui_hypersfun::sui_factory {
     }
 
     /// Pause/unpause factory
-    public entry fun set_paused(
+    public fun set_paused(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
         paused: bool,
@@ -252,7 +247,7 @@ module sui_hypersfun::sui_factory {
     }
 
     /// Update global trading fee
-    public entry fun set_trading_fee(
+    public fun set_trading_fee(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
         fee_bps: u64,
@@ -262,7 +257,7 @@ module sui_hypersfun::sui_factory {
     }
 
     /// Set minimum deposit
-    public entry fun set_min_deposit(
+    public fun set_min_deposit(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
         min_deposit_usdc: u64,
@@ -271,7 +266,7 @@ module sui_hypersfun::sui_factory {
     }
 
     /// Set rebalance thresholds
-    public entry fun set_rebalance_thresholds(
+    public fun set_rebalance_thresholds(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
         low_bps: u64,
@@ -291,7 +286,7 @@ module sui_hypersfun::sui_factory {
 
     /// Set max buy per transaction (% of vault assets)
     /// @param max_buy_bps: Maximum buy in basis points (100 = 1%, 0 = disabled)
-    public entry fun set_max_buy_bps(
+    public fun set_max_buy_bps(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
         max_buy_bps: u64,
@@ -302,7 +297,7 @@ module sui_hypersfun::sui_factory {
     }
 
     /// Set default bonding curve parameters
-    public entry fun set_default_bc_params(
+    public fun set_default_bc_params(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
         virtual_base: u64,
@@ -315,7 +310,7 @@ module sui_hypersfun::sui_factory {
     }
 
     /// Add a graduation tier
-    public entry fun add_graduation_tier(
+    public fun add_graduation_tier(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
         threshold: u64,
@@ -355,7 +350,7 @@ module sui_hypersfun::sui_factory {
     }
 
     /// Clear all graduation tiers
-    public entry fun clear_graduation_tiers(
+    public fun clear_graduation_tiers(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
     ) {
@@ -363,7 +358,7 @@ module sui_hypersfun::sui_factory {
     }
 
     /// Set exit fee tiers
-    public entry fun set_exit_fee_tiers(
+    public fun set_exit_fee_tiers(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
         days: vector<u64>,
@@ -386,7 +381,7 @@ module sui_hypersfun::sui_factory {
     }
 
     /// Verify/unverify a leader
-    public entry fun set_leader_verified(
+    public fun set_leader_verified(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
         leader: address,
@@ -406,7 +401,7 @@ module sui_hypersfun::sui_factory {
     }
 
     /// Set vault verified status
-    public entry fun set_vault_verified(
+    public fun set_vault_verified(
         _admin_cap: &SuiAdminCap,
         factory: &mut SuiFactory,
         vault_id: ID,

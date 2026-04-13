@@ -8,8 +8,7 @@ module sui_hypersfun::sui_math {
     /// Maximum u64 value for overflow checks
     const MAX_U64: u64 = 18446744073709551615;
 
-    /// Maximum u128 value
-    const MAX_U128: u128 = 340282366920938463463374607431768211455;
+
 
     // ============ Error Codes ============
 

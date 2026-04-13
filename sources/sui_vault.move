@@ -1,23 +1,19 @@
 /// SUI HypersFun - Vault Core Module
 /// 核心 Vault 邏輯：Bonding Curve AMM、buy/sell、NAV、績效費、退出費、TWAP
+#[allow(lint(self_transfer))]
 module sui_hypersfun::sui_vault {
-    use sui::object::{Self, UID, ID};
-    use sui::tx_context::{Self, TxContext};
-    use sui::transfer;
     use sui::table::{Self, Table};
     use sui::balance::{Self, Balance};
-    use sui::coin::{Self, Coin, TreasuryCap, CoinMetadata};
+    use sui::coin::{Self, Coin};
     use sui::event;
     use sui::clock::{Self, Clock};
     use std::string::{Self, String};
-    use std::option::{Self, Option};
 
     use sui_hypersfun::sui_types::{
         Self,
         UserPurchaseInfo,
         EntryRecord,
         PendingSell,
-        ApiWalletInfo,
     };
     use sui_hypersfun::sui_math;
     use sui_hypersfun::sui_factory::{Self, SuiFactory, SuiAdminCap};
@@ -33,9 +29,6 @@ module sui_hypersfun::sui_vault {
     const E_ZERO_TOKENS: u64 = 7;
     const E_INSUFFICIENT_LIQUIDITY: u64 = 8;
     const E_MIN_DEPOSIT: u64 = 9;
-    const E_NOT_LEADER: u64 = 10;
-    const E_NOT_ADMIN: u64 = 11;
-    const E_ALREADY_INITIALIZED: u64 = 12;
     const E_FEE_TOO_HIGH: u64 = 13;
 
     // ============ Structs ============
@@ -169,7 +162,7 @@ module sui_hypersfun::sui_vault {
     /// Create a new vault
     /// Note: This is a simplified version. In production, you'd use a proper
     /// coin creation flow with one-time witness.
-    public entry fun create_vault<USDC>(
+    public fun create_vault<USDC>(
         factory: &mut SuiFactory,
         name: vector<u8>,
         symbol: vector<u8>,
@@ -248,7 +241,7 @@ module sui_hypersfun::sui_vault {
     // ============ Buy Function ============
 
     /// Buy vault tokens with USDC
-    public entry fun buy<USDC>(
+    public fun buy<USDC>(
         vault: &mut SuiVault<USDC>,
         factory: &SuiFactory,
         usdc_coin: Coin<USDC>,
@@ -349,7 +342,7 @@ module sui_hypersfun::sui_vault {
 
     /// Sell vault tokens for USDC
     /// If insufficient liquidity, creates a pending sell
-    public entry fun sell<USDC>(
+    public fun sell<USDC>(
         vault: &mut SuiVault<USDC>,
         factory: &SuiFactory,
         token_amount: u64,
@@ -496,7 +489,7 @@ module sui_hypersfun::sui_vault {
 
     /// Sell vault shares using VaultShare object
     /// This is the preferred way to sell - requires actual ownership of VaultShare
-    public entry fun sell_shares<USDC>(
+    public fun sell_shares<USDC>(
         vault: &mut SuiVault<USDC>,
         factory: &SuiFactory,
         share: VaultShare,
@@ -650,7 +643,7 @@ module sui_hypersfun::sui_vault {
     // ============ VaultShare Utilities ============
 
     /// Merge multiple VaultShare objects into one
-    public entry fun merge_shares(
+    public fun merge_shares(
         share1: &mut VaultShare,
         share2: VaultShare,
     ) {
@@ -700,7 +693,7 @@ module sui_hypersfun::sui_vault {
     // ============ Claim Pending Sell ============
 
     /// Claim USDC from a pending sell
-    public entry fun claim_pending_sell<USDC>(
+    public fun claim_pending_sell<USDC>(
         vault: &mut SuiVault<USDC>,
         ctx: &mut TxContext,
     ) {
@@ -811,7 +804,7 @@ module sui_hypersfun::sui_vault {
 
     /// Get effective virtual reserves based on graduation tier
     fun get_effective_virtuals<USDC>(
-        vault: &SuiVault<USDC>,
+        _vault: &SuiVault<USDC>,
         factory: &SuiFactory,
         total_assets: u64,
     ): (u64, u64) {
@@ -1039,7 +1032,7 @@ module sui_hypersfun::sui_vault {
     // ============ Leader Functions ============
 
     /// Set vault paused state (leader only)
-    public entry fun set_paused<USDC>(
+    public fun set_paused<USDC>(
         leader_cap: &SuiLeaderCap,
         vault: &mut SuiVault<USDC>,
         paused: bool,
@@ -1049,7 +1042,7 @@ module sui_hypersfun::sui_vault {
     }
 
     /// Set metadata URI (leader only)
-    public entry fun set_metadata_uri<USDC>(
+    public fun set_metadata_uri<USDC>(
         leader_cap: &SuiLeaderCap,
         vault: &mut SuiVault<USDC>,
         uri: vector<u8>,
@@ -1061,7 +1054,7 @@ module sui_hypersfun::sui_vault {
     // ============ Admin Functions ============
 
     /// Set vault admin (factory admin only)
-    public entry fun set_admin<USDC>(
+    public fun set_admin<USDC>(
         _admin_cap: &SuiAdminCap,
         vault: &mut SuiVault<USDC>,
         new_admin: address,
@@ -1070,7 +1063,7 @@ module sui_hypersfun::sui_vault {
     }
 
     /// Emergency pause (factory admin only)
-    public entry fun emergency_pause<USDC>(
+    public fun emergency_pause<USDC>(
         _admin_cap: &SuiAdminCap,
         vault: &mut SuiVault<USDC>,
     ) {
@@ -1078,7 +1071,7 @@ module sui_hypersfun::sui_vault {
     }
 
     /// Set TWAP half-life (factory admin only)
-    public entry fun set_twap_half_life<USDC>(
+    public fun set_twap_half_life<USDC>(
         _admin_cap: &SuiAdminCap,
         vault: &mut SuiVault<USDC>,
         half_life: u64,

@@ -7,10 +7,8 @@
 /// - Leader 持有 SuiLeaderTradeCap，可以授權交易
 /// - Vault Admin 持有 SuiTradingVault，可以存入/提取資金
 /// - 資金永遠不會直接轉到 Leader 的個人錢包
+#[allow(lint(self_transfer), unused_field)]
 module sui_hypersfun::sui_trading {
-    use sui::object::{Self, UID, ID};
-    use sui::tx_context::{Self, TxContext};
-    use sui::transfer;
     use sui::table::{Self, Table};
     use sui::balance::{Self, Balance};
     use sui::coin::{Self, Coin};
@@ -19,20 +17,17 @@ module sui_hypersfun::sui_trading {
     use std::string::{Self, String};
 
     use sui_hypersfun::sui_types::{Self, ApiWalletInfo};
-    use sui_hypersfun::sui_factory::{Self, SuiFactory, SuiAdminCap};
-    use sui_hypersfun::sui_vault::{Self, SuiVault, SuiLeaderCap};
+    use sui_hypersfun::sui_factory::SuiAdminCap;
 
     // ============ Error Codes ============
 
     const E_NOT_AUTHORIZED: u64 = 1;
     const E_PAUSED: u64 = 2;
-    const E_INVALID_AMOUNT: u64 = 3;
     const E_API_WALLET_EXPIRED: u64 = 4;
     const E_INVALID_DURATION: u64 = 5;
     const E_WALLET_NOT_FOUND: u64 = 6;
     const E_WALLET_EXISTS: u64 = 7;
     const E_INSUFFICIENT_BALANCE: u64 = 8;
-    const E_VAULT_MISMATCH: u64 = 9;
     const E_INVALID_TRADE: u64 = 10;
     const E_TRADE_AMOUNT_EXCEEDS_ALLOWANCE: u64 = 11;
 
@@ -165,7 +160,7 @@ module sui_hypersfun::sui_trading {
 
     /// Create trading vault without trade limits (matches EVM behavior)
     /// Only callable by vault admin after vault creation
-    public entry fun create_trading_vault_unlimited<USDC>(
+    public fun create_trading_vault_unlimited<USDC>(
         _admin_cap: &SuiAdminCap,
         vault_id: ID,
         leader: address,
@@ -184,7 +179,7 @@ module sui_hypersfun::sui_trading {
 
     /// Create trading vault with optional trade limits
     /// Only callable by vault admin after vault creation
-    public entry fun create_trading_vault<USDC>(
+    public fun create_trading_vault<USDC>(
         _admin_cap: &SuiAdminCap,
         vault_id: ID,
         leader: address,
@@ -260,7 +255,7 @@ module sui_hypersfun::sui_trading {
     // ============ Deposit/Withdraw (Admin Only) ============
 
     /// Deposit USDC from main vault to trading vault
-    public entry fun deposit_to_trading<USDC>(
+    public fun deposit_to_trading<USDC>(
         trading_vault: &mut SuiTradingVault<USDC>,
         coin: Coin<USDC>,
         _ctx: &mut TxContext,
@@ -295,7 +290,7 @@ module sui_hypersfun::sui_trading {
     }
 
     /// Withdraw USDC and transfer to recipient (entry function version)
-    public entry fun withdraw_from_trading_to<USDC>(
+    public fun withdraw_from_trading_to<USDC>(
         trading_vault: &mut SuiTradingVault<USDC>,
         amount: u64,
         recipient: address,
@@ -315,7 +310,7 @@ module sui_hypersfun::sui_trading {
     }
 
     /// Withdraw all USDC and transfer to recipient (entry function version)
-    public entry fun withdraw_all_from_trading_to<USDC>(
+    public fun withdraw_all_from_trading_to<USDC>(
         trading_vault: &mut SuiTradingVault<USDC>,
         recipient: address,
         ctx: &mut TxContext,
@@ -328,7 +323,7 @@ module sui_hypersfun::sui_trading {
 
     /// Leader authorizes a trade - creates a TradeAuthorization ticket
     /// This ticket is then used in a PTB to execute the actual DeepBook trade
-    public entry fun authorize_trade<USDC>(
+    public fun authorize_trade<USDC>(
         trading_module: &mut SuiTradingModule,
         trading_vault: &mut SuiTradingVault<USDC>,
         leader_cap: &SuiLeaderTradeCap,
@@ -440,7 +435,7 @@ module sui_hypersfun::sui_trading {
     // ============ API Wallet Management ============
 
     /// Add an API wallet (leader only)
-    public entry fun add_api_wallet(
+    public fun add_api_wallet(
         trading_module: &mut SuiTradingModule,
         leader_cap: &SuiLeaderTradeCap,
         wallet: address,
@@ -475,7 +470,7 @@ module sui_hypersfun::sui_trading {
     }
 
     /// Remove an API wallet
-    public entry fun remove_api_wallet(
+    public fun remove_api_wallet(
         trading_module: &mut SuiTradingModule,
         leader_cap: &SuiLeaderTradeCap,
         wallet: address,
@@ -547,7 +542,7 @@ module sui_hypersfun::sui_trading {
     // ============ Admin Functions ============
 
     /// Pause trading (admin only - owner of trading vault)
-    public entry fun set_paused<USDC>(
+    public fun set_paused<USDC>(
         trading_vault: &mut SuiTradingVault<USDC>,
         paused: bool,
     ) {
@@ -555,7 +550,7 @@ module sui_hypersfun::sui_trading {
     }
 
     /// Update max trade size (admin only)
-    public entry fun set_max_trade_size<USDC>(
+    public fun set_max_trade_size<USDC>(
         trading_vault: &mut SuiTradingVault<USDC>,
         max_trade_size: u64,
     ) {
@@ -563,7 +558,7 @@ module sui_hypersfun::sui_trading {
     }
 
     /// Update daily trade limit (admin only)
-    public entry fun set_daily_trade_limit<USDC>(
+    public fun set_daily_trade_limit<USDC>(
         trading_vault: &mut SuiTradingVault<USDC>,
         daily_trade_limit: u64,
     ) {
