@@ -8,6 +8,7 @@ export const MODULES = {
   FACTORY: "sui_factory",
   VAULT: "sui_vault",
   TRADING: "sui_trading",
+  DEEPBOOK_MOD: "sui_deepbook",
   TYPES: "sui_types",
   MATH: "sui_math",
 } as const;
@@ -38,7 +39,9 @@ export const SUI_CONFIG = {
   },
 };
 
-// USDC on SUI Testnet
+// Base currency on SUI
+// For testnet: set NEXT_PUBLIC_USDC_TYPE to DBUSDC for DeepBook compatibility
+// DBUSDC: 0x22be4cade64bf2d02412c7e8d0e8beea2f78828b948118d46735315409371a3c::dbusdc::DBUSDC
 export const USDC = {
   TYPE: process.env.NEXT_PUBLIC_USDC_TYPE || "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
   DECIMALS: 6,
@@ -97,19 +100,17 @@ export function parseUsdc(amount: string | number): bigint {
   return BigInt(Math.floor(num * 1_000_000));
 }
 
-// DeepBook V3 Configuration (Testnet)
+// DeepBook V3 Configuration (Testnet - updated April 2026)
 export const DEEPBOOK = {
-  PACKAGE_ID: "0x2c8d603bc51326b8c13cef9dd07031a408a48dddb541963571f2b0f6b168f911",
-  REGISTRY_ID: "0x98dace830ebebd44b7a3331c00750bf758f8a4b17a27380f5bb3fbe68cb984a7",
-  // Testnet tokens
-  DBUSDC: "0x22be4cade64bf2d02412c7e8d0e8beea2f78828b948118d46735315409371a3c::dbusdc::DBUSDC",
+  PACKAGE_ID: "0xfb28c4cbc6865bd1c897d26aecbe1f8792d1509a20ffec692c800660cbec6982",
+  DBUSDC: "0xf7152c05930480cd740d7311b5b8b45c6f488e3a53a11c3f74a6fac36a52e0d7::DBUSDC::DBUSDC",
   SUI: "0x2::sui::SUI",
-  DEEP: "0x22be4cade64bf2d02412c7e8d0e8beea2f78828b948118d46735315409371a3c::deep::DEEP",
+  DEEP: "0x36dbef866a1d62bf7328989a10fb2f07d769f4ee587c0de4a0a256e57e0a58a8::deep::DEEP",
 };
 
 // Supported trading pairs for DeepBook
-// Note: DeepBook testnet uses DBUSDC, not our custom USDC.
-// Leader trading via DeepBook requires DBUSDC-denominated pools.
+// Testnet: pools use DBUSDC. Set NEXT_PUBLIC_USDC_TYPE to DBUSDC for end-to-end testing.
+// Mainnet: pools will use native USDC.
 export const TRADING_PAIRS = [
   {
     name: "SUI/DBUSDC",
@@ -121,17 +122,7 @@ export const TRADING_PAIRS = [
     quoteDecimals: 6,
     poolKey: "SUI_DBUSDC",
     poolId: "0x1c19362ca52b8ffd7a33cee805a67d40f31e6ba303753fd3a4cfdfacea7163a5",
-  },
-  {
-    name: "DEEP/SUI",
-    base: "DEEP",
-    quote: "SUI",
-    baseType: DEEPBOOK.DEEP,
-    quoteType: DEEPBOOK.SUI,
-    baseDecimals: 9,
-    quoteDecimals: 9,
-    poolKey: "DEEP_SUI",
-    poolId: "0x48c95963e9eac37a316b7ae04a0deb761bcdcc2b67912374d6036e7f0e9bae9f",
+    // For this pair: vault needs DBUSDC type, swap DBUSDC→SUI or SUI→DBUSDC
   },
   {
     name: "DEEP/DBUSDC",
@@ -139,7 +130,7 @@ export const TRADING_PAIRS = [
     quote: "DBUSDC",
     baseType: DEEPBOOK.DEEP,
     quoteType: DEEPBOOK.DBUSDC,
-    baseDecimals: 9,
+    baseDecimals: 6,
     quoteDecimals: 6,
     poolKey: "DEEP_DBUSDC",
     poolId: "0xe86b991f8632217505fd859445f9803967ac84a9d4a1219065bf191fcb74b622",

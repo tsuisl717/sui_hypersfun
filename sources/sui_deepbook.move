@@ -133,6 +133,7 @@ module sui_hypersfun::sui_deepbook {
     // ============ Swap Authorization ============
 
     /// Leader authorizes a swap from USDC to another asset
+    /// Returns SwapAuthorization so it can be used in the same PTB (single transaction)
     public fun authorize_swap<USDC>(
         vault: &SuiVault<USDC>,
         leader_cap: &SuiLeaderCap,
@@ -142,7 +143,7 @@ module sui_hypersfun::sui_deepbook {
         expiry_seconds: u64,
         clock: &Clock,
         ctx: &mut TxContext,
-    ) {
+    ): SwapAuthorization {
         // Verify leader
         assert!(sui_vault::leader_cap_vault_id(leader_cap) == object::id(vault), E_NOT_AUTHORIZED);
         assert!(input_amount > 0, E_INVALID_AMOUNT);
@@ -170,8 +171,7 @@ module sui_hypersfun::sui_deepbook {
             is_buy,
         });
 
-        // Transfer to sender for use in PTB
-        transfer::transfer(authorization, tx_context::sender(ctx));
+        authorization
     }
 
     /// Consume swap authorization and extract USDC for DeepBook swap

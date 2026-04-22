@@ -7,14 +7,23 @@ import {
   Loader2,
   TrendingUp,
   TrendingDown,
-  Settings,
   Wallet,
   ArrowRightLeft,
   AlertCircle,
-  CheckCircle,
-  Clock
+  Plus,
+  RefreshCw,
 } from 'lucide-react';
-import { PACKAGE_ID, MODULES, USDC, DEEPBOOK, TRADING_PAIRS, formatUsdc, parseUsdc } from '@/lib/contracts/config';
+import {
+  PACKAGE_ID,
+  MODULES,
+  USDC,
+  DEEPBOOK,
+  TRADING_PAIRS,
+  formatUsdc,
+  parseUsdc,
+} from '@/lib/contracts/config';
+
+// ============ Types ============
 
 interface LeaderTradingPanelProps {
   vaultId: string;
@@ -22,21 +31,15 @@ interface LeaderTradingPanelProps {
   isLeader: boolean;
 }
 
-interface TradingVaultInfo {
+interface AssetVaultInfo {
   id: string;
+  assetType: string;
   balance: number;
-  maxTradeSize: number;
-  dailyLimit: number;
-  dailyTraded: number;
-  paused: boolean;
+  decimals: number;
+  symbol: string;
 }
 
-interface TradeAuthorization {
-  id: string;
-  amount: number;
-  isBuy: boolean;
-  expiresAt: number;
-}
+// ============ Component ============
 
 export default function LeaderTradingPanel({
   vaultId,
@@ -47,272 +50,419 @@ export default function LeaderTradingPanel({
   const client = useSuiClient();
   const { mutateAsync: signAndExecute, isPending } = useSignAndExecuteTransaction();
 
-  const [activeTab, setActiveTab] = useState<'trade' | 'manage'>('trade');
+  // UI state
+  const [activeTab, setActiveTab] = useState<'trade' | 'assets'>('trade');
   const [tradeType, setTradeType] = useState<'buy' | 'sell'>('buy');
   const [selectedPair, setSelectedPair] = useState(0);
   const [amount, setAmount] = useState('');
-  const [minOutput, setMinOutput] = useState('');
   const [slippageBps, setSlippageBps] = useState(100); // 1% default
-
-  const [tradingVault, setTradingVault] = useState<TradingVaultInfo | null>(null);
-  const [pendingAuths, setPendingAuths] = useState<TradeAuthorization[]>([]);
   const [txStatus, setTxStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Trading Module objects (from env or stored)
-  const [tradingModuleId, setTradingModuleId] = useState<string>('');
-  const [tradingVaultId, setTradingVaultId] = useState<string>('');
-  const [leaderTradeCapId, setLeaderTradeCapId] = useState<string>('');
+  // On-chain objects
+  const [leaderCapId, setLeaderCapId] = useState<string>('');
+  const [assetVaults, setAssetVaults] = useState<AssetVaultInfo[]>([]);
+  const [vaultUsdcBalance, setVaultUsdcBalance] = useState<number>(0);
 
-  // Fetch trading vault info
-  const fetchTradingVault = useCallback(async () => {
-    if (!tradingVaultId) return;
+  // Price quote
+  const [midPrice, setMidPrice] = useState<number | null>(null);
+  const [estimatedOutput, setEstimatedOutput] = useState<string | null>(null);
+
+  // ============ Fetch DeepBook Price Quote ============
+
+  const fetchPriceQuote = useCallback(async () => {
+    const pair = TRADING_PAIRS[selectedPair];
+    if (!pair) return;
 
     try {
       const obj = await client.getObject({
-        id: tradingVaultId,
+        id: pair.poolId,
         options: { showContent: true },
       });
 
       if (obj.data?.content && obj.data.content.dataType === 'moveObject') {
         const fields = obj.data.content.fields as Record<string, unknown>;
-        const balanceField = fields.trading_balance as Record<string, unknown>;
-        const balance = typeof balanceField === 'object'
-          ? Number((balanceField as Record<string, unknown>)?.fields?.value || 0)
-          : Number(balanceField || 0);
 
-        setTradingVault({
-          id: tradingVaultId,
-          balance: balance / 1_000_000,
-          maxTradeSize: Number(fields.max_trade_size || 0) / 1_000_000,
-          dailyLimit: Number(fields.daily_trade_limit || 0) / 1_000_000,
-          dailyTraded: Number(fields.daily_traded || 0) / 1_000_000,
-          paused: Boolean(fields.paused),
-        });
+        // Try to extract mid price from pool state
+        // DeepBook V3 pool has best_bid and best_ask in its order book
+        const midPriceField = fields.mid_price as number | undefined;
+        if (midPriceField) {
+          const price = Number(midPriceField) / Math.pow(10, pair.quoteDecimals);
+          setMidPrice(price);
+        }
+      }
+
+      // Estimate output based on amount input
+      if (amount && midPrice) {
+        const inputNum = parseFloat(amount);
+        if (tradeType === 'buy') {
+          // Buying base with USDC: output = input / price
+          const est = inputNum / midPrice;
+          setEstimatedOutput(`~${est.toFixed(4)} ${pair.base}`);
+        } else {
+          // Selling base for USDC: output = input * price
+          const est = inputNum * midPrice;
+          setEstimatedOutput(`~$${est.toFixed(2)} USDC`);
+        }
+      } else {
+        setEstimatedOutput(null);
       }
     } catch (e) {
-      console.error('Error fetching trading vault:', e);
+      console.error('Error fetching price quote:', e);
     }
-  }, [client, tradingVaultId]);
+  }, [client, selectedPair, amount, tradeType, midPrice]);
 
-  // Fetch Leader Trade Cap
-  const fetchLeaderObjects = useCallback(async () => {
+  // ============ Fetch Leader Cap (from sui_vault module) ============
+
+  const fetchLeaderCap = useCallback(async () => {
     if (!account || !isLeader) return;
 
     try {
-      // Find LeaderTradeCap owned by this account
-      const tradeCaps = await client.getOwnedObjects({
+      const caps = await client.getOwnedObjects({
         owner: account.address,
         filter: {
-          StructType: `${PACKAGE_ID}::${MODULES.TRADING}::SuiLeaderTradeCap`,
+          StructType: `${PACKAGE_ID}::${MODULES.VAULT}::SuiLeaderCap`,
         },
         options: { showContent: true },
       });
 
-      for (const obj of tradeCaps.data) {
+      for (const obj of caps.data) {
         if (obj.data?.content && obj.data.content.dataType === 'moveObject') {
           const fields = obj.data.content.fields as Record<string, unknown>;
           if (fields.vault_id === vaultId) {
-            setLeaderTradeCapId(obj.data.objectId);
-            setTradingVaultId(fields.trading_vault_id as string);
-            break;
+            setLeaderCapId(obj.data.objectId);
+            return;
           }
         }
       }
+    } catch (e) {
+      console.error('Error fetching LeaderCap:', e);
+    }
+  }, [account, client, isLeader, vaultId]);
 
-      // Find Trading Module (shared object) via TradingVaultCreated events
+  // ============ Fetch Asset Vaults ============
+
+  const fetchAssetVaults = useCallback(async () => {
+    try {
+      // Query AssetVaultCreated events to find asset vaults for this vault
       const events = await client.queryEvents({
         query: {
-          MoveEventType: `${PACKAGE_ID}::${MODULES.TRADING}::TradingVaultCreated`,
+          MoveEventType: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::AssetVaultCreated`,
         },
         limit: 50,
       });
 
+      const vaults: AssetVaultInfo[] = [];
+
       for (const event of events.data) {
         const parsed = event.parsedJson as Record<string, unknown>;
-        if (parsed.vault_id === vaultId) {
-          // Found the event — get created objects from that transaction
-          const txDetails = await client.getTransactionBlock({
-            digest: event.id.txDigest,
-            options: { showObjectChanges: true },
+        if (parsed.vault_id !== vaultId) continue;
+
+        const assetVaultId = parsed.asset_vault_id as string;
+
+        // Fetch the asset vault object
+        try {
+          const obj = await client.getObject({
+            id: assetVaultId,
+            options: { showContent: true, showType: true },
           });
 
-          const changes = txDetails.objectChanges || [];
-          for (const change of changes) {
-            if (
-              change.type === 'created' &&
-              'objectType' in change &&
-              change.objectType.includes('SuiTradingModule')
-            ) {
-              setTradingModuleId(change.objectId);
-              break;
-            }
+          if (obj.data?.content && obj.data.content.dataType === 'moveObject') {
+            const fields = obj.data.content.fields as Record<string, unknown>;
+            const balanceField = fields.balance;
+            const balance = typeof balanceField === 'object' && balanceField !== null
+              ? Number((balanceField as Record<string, Record<string, unknown>>)?.fields?.value ?? 0)
+              : Number(balanceField || 0);
+
+            // Extract asset type from the object type string
+            const objType = obj.data.type || '';
+            // Type format: PACKAGE::sui_deepbook::AssetVault<0x2::sui::SUI>
+            const typeMatch = objType.match(/AssetVault<(.+)>/);
+            const assetType = typeMatch ? typeMatch[1] : '';
+
+            // Find matching trading pair for symbol and decimals
+            const pair = TRADING_PAIRS.find(
+              (p) => p.baseType === assetType || p.quoteType === assetType
+            );
+
+            vaults.push({
+              id: assetVaultId,
+              assetType,
+              balance,
+              decimals: pair?.baseType === assetType ? pair.baseDecimals : (pair?.quoteDecimals || 6),
+              symbol: assetType.includes('::sui::SUI')
+                ? 'SUI'
+                : assetType.includes('::deep::DEEP')
+                  ? 'DEEP'
+                  : assetType.split('::').pop() || 'Unknown',
+            });
           }
-          break;
+        } catch {
+          // Asset vault may have been deleted or not accessible
         }
       }
+
+      setAssetVaults(vaults);
     } catch (e) {
-      console.error('Error fetching leader objects:', e);
+      console.error('Error fetching asset vaults:', e);
     }
-  }, [account, client, isLeader, vaultId]);
+  }, [client, vaultId]);
+
+  // ============ Fetch Vault USDC Balance ============
+
+  const fetchVaultBalance = useCallback(async () => {
+    try {
+      const obj = await client.getObject({
+        id: vaultId,
+        options: { showContent: true },
+      });
+
+      if (obj.data?.content && obj.data.content.dataType === 'moveObject') {
+        const fields = obj.data.content.fields as Record<string, unknown>;
+        const reserveField = fields.usdc_reserve;
+        const reserve = typeof reserveField === 'object' && reserveField !== null
+          ? Number((reserveField as Record<string, Record<string, unknown>>)?.fields?.value ?? 0)
+          : Number(reserveField || 0);
+        setVaultUsdcBalance(reserve / 1_000_000);
+      }
+    } catch (e) {
+      console.error('Error fetching vault balance:', e);
+    }
+  }, [client, vaultId]);
+
+  // ============ Effects ============
 
   useEffect(() => {
     if (isLeader) {
-      fetchLeaderObjects();
+      fetchLeaderCap();
+      fetchAssetVaults();
+      fetchVaultBalance();
     }
-  }, [isLeader, fetchLeaderObjects]);
+  }, [isLeader, fetchLeaderCap, fetchAssetVaults, fetchVaultBalance]);
 
+  // Fetch price when pair or amount changes
   useEffect(() => {
-    if (tradingVaultId) {
-      fetchTradingVault();
+    if (isLeader) {
+      fetchPriceQuote();
     }
-  }, [tradingVaultId, fetchTradingVault]);
+  }, [isLeader, selectedPair, amount, tradeType, fetchPriceQuote]);
 
-  // Create Trading Vault
-  const handleCreateTradingVault = async () => {
-    if (!account) return;
+  // ============ Create Asset Vault ============
 
-    setTxStatus('Creating trading vault...');
+  const handleCreateAssetVault = async (baseType: string) => {
+    if (!account || !leaderCapId) return;
+
     setLoading(true);
+    setTxStatus('Creating asset vault...');
 
     try {
       const tx = new Transaction();
 
       tx.moveCall({
-        target: `${PACKAGE_ID}::${MODULES.TRADING}::create_trading_vault_unlimited`,
-        typeArguments: [USDC.TYPE],
+        target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::create_asset_vault`,
+        typeArguments: [USDC.TYPE, baseType],
         arguments: [
-          tx.object(process.env.NEXT_PUBLIC_ADMIN_CAP_ID || ''),
-          tx.pure.id(vaultId),
-          tx.pure.address(account.address),
-          tx.object('0x6'), // Clock
+          tx.object(vaultId),
+          tx.object(leaderCapId),
         ],
       });
 
       const result = await signAndExecute({ transaction: tx });
-      setTxStatus(`Trading vault created! TX: ${result.digest.slice(0, 8)}...`);
+      setTxStatus(`Asset vault created! TX: ${result.digest.slice(0, 8)}...`);
 
-      // Refresh leader objects
       setTimeout(() => {
-        fetchLeaderObjects();
+        fetchAssetVaults();
         setTxStatus(null);
       }, 2000);
     } catch (e) {
-      console.error('Create trading vault error:', e);
-      setTxStatus(`Error: ${e instanceof Error ? e.message : 'Failed to create trading vault'}`);
+      console.error('Create asset vault error:', e);
+      setTxStatus(`Error: ${e instanceof Error ? e.message : 'Failed to create asset vault'}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // Deposit to Trading Vault
-  const handleDeposit = async () => {
-    if (!account || !tradingVaultId || !amount) return;
+  // ============ Execute Trade (single PTB) ============
 
-    setTxStatus('Depositing USDC...');
+  const handleExecuteTrade = async () => {
+    if (!account || !leaderCapId || !amount) return;
+
+    const pair = TRADING_PAIRS[selectedPair];
+    const isBuy = tradeType === 'buy';
+
+    const assetVault = assetVaults.find((v) => v.assetType === pair.baseType);
+    if (!assetVault) {
+      setTxStatus(`Error: No asset vault for ${pair.base}. Create one first in the Assets tab.`);
+      return;
+    }
+
     setLoading(true);
+    setTxStatus('Building transaction...');
 
     try {
-      const usdcAmount = parseUsdc(amount);
+      const inputAmount = isBuy
+        ? parseUsdc(amount)
+        : BigInt(Math.floor(parseFloat(amount) * Math.pow(10, pair.baseDecimals)));
 
-      // Get user's USDC coins
-      const coins = await client.getCoins({
+      const tx = new Transaction();
+
+      // Step 1: authorize_swap → returns SwapAuthorization (no separate TX needed)
+      const [swapAuth] = tx.moveCall({
+        target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::authorize_swap`,
+        typeArguments: [USDC.TYPE],
+        arguments: [
+          tx.object(vaultId),
+          tx.object(leaderCapId),
+          tx.pure.u64(inputAmount),
+          tx.pure.u64(0), // min_output (checked in deposit step)
+          tx.pure.bool(isBuy),
+          tx.pure.u64(300), // 5 min expiry
+          tx.object('0x6'), // Clock
+        ],
+      });
+
+      // Get or create DEEP coin for DeepBook fees
+      const [deepCoin] = await getOrCreateDeepCoin(tx);
+
+      if (isBuy) {
+        // BUY: USDC → Base Asset
+        // Step 2: consume authorization → extract USDC from vault
+        const [usdcCoin] = tx.moveCall({
+          target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::consume_swap_for_buy`,
+          typeArguments: [USDC.TYPE],
+          arguments: [
+            swapAuth,
+            tx.object(vaultId),
+            tx.object('0x6'),
+          ],
+        });
+
+        // Step 3: DeepBook swap USDC → Base Asset
+        const [baseOut, quoteOut, deepOut] = tx.moveCall({
+          target: `${DEEPBOOK.PACKAGE_ID}::pool::swap_exact_quote_for_base`,
+          typeArguments: [pair.baseType, pair.quoteType],
+          arguments: [
+            tx.object(pair.poolId),
+            usdcCoin,
+            deepCoin,
+            tx.pure.u64(0), // min_output
+            tx.object('0x6'),
+          ],
+        });
+
+        // Step 4: deposit base asset to AssetVault
+        tx.moveCall({
+          target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::deposit_swap_output`,
+          typeArguments: [pair.baseType],
+          arguments: [
+            tx.object(assetVault.id),
+            baseOut,
+            tx.pure.u64(0),
+          ],
+        });
+
+        // Step 5: return leftover quote + DEEP to sender
+        tx.transferObjects([quoteOut, deepOut], account.address);
+      } else {
+        // SELL: Base Asset → USDC
+        // Step 2: consume authorization → extract base asset from AssetVault
+        const [assetCoin] = tx.moveCall({
+          target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::consume_swap_for_sell`,
+          typeArguments: [pair.baseType],
+          arguments: [
+            swapAuth,
+            tx.object(assetVault.id),
+            tx.pure.u64(inputAmount),
+            tx.object('0x6'),
+          ],
+        });
+
+        // Step 3: DeepBook swap Base Asset → USDC
+        const [baseOut, quoteOut, deepOut] = tx.moveCall({
+          target: `${DEEPBOOK.PACKAGE_ID}::pool::swap_exact_base_for_quote`,
+          typeArguments: [pair.baseType, pair.quoteType],
+          arguments: [
+            tx.object(pair.poolId),
+            assetCoin,
+            deepCoin,
+            tx.pure.u64(0), // min_output
+            tx.object('0x6'),
+          ],
+        });
+
+        // Step 4: deposit USDC back to vault
+        tx.moveCall({
+          target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::deposit_usdc_from_sell`,
+          typeArguments: [USDC.TYPE],
+          arguments: [
+            tx.object(vaultId),
+            quoteOut,
+            tx.pure.u64(0),
+          ],
+        });
+
+        // Step 5: return leftover base + DEEP to sender
+        tx.transferObjects([baseOut, deepOut], account.address);
+      }
+
+      setTxStatus('Waiting for wallet approval...');
+      const result = await signAndExecute({ transaction: tx });
+      setTxStatus(`Trade executed! TX: ${result.digest.slice(0, 8)}...`);
+
+      setTimeout(() => {
+        fetchAssetVaults();
+        fetchVaultBalance();
+        setTxStatus(null);
+        setAmount('');
+      }, 2000);
+    } catch (e) {
+      console.error('Trade error:', e);
+      setTxStatus(`Error: ${e instanceof Error ? e.message : 'Trade failed'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ============ Helper: Get or create DEEP coin ============
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function getOrCreateDeepCoin(tx: Transaction): Promise<[any]> {
+    if (!account) {
+      const [zeroCoin] = tx.moveCall({
+        target: '0x2::coin::zero',
+        typeArguments: [DEEPBOOK.DEEP],
+      });
+      return [zeroCoin];
+    }
+
+    try {
+      const deepCoins = await client.getCoins({
         owner: account.address,
-        coinType: USDC.TYPE,
+        coinType: DEEPBOOK.DEEP,
       });
 
-      if (coins.data.length === 0) {
-        setTxStatus('Error: No USDC found in wallet');
-        setLoading(false);
-        return;
+      if (deepCoins.data.length > 0) {
+        const [primaryCoin, ...otherCoins] = deepCoins.data;
+        if (otherCoins.length > 0) {
+          tx.mergeCoins(
+            tx.object(primaryCoin.coinObjectId),
+            otherCoins.map((c) => tx.object(c.coinObjectId)),
+          );
+        }
+        return [tx.object(primaryCoin.coinObjectId)];
       }
-
-      const tx = new Transaction();
-
-      const [primaryCoin, ...otherCoins] = coins.data;
-      if (otherCoins.length > 0) {
-        tx.mergeCoins(
-          tx.object(primaryCoin.coinObjectId),
-          otherCoins.map((c) => tx.object(c.coinObjectId))
-        );
-      }
-
-      const [paymentCoin] = tx.splitCoins(tx.object(primaryCoin.coinObjectId), [usdcAmount]);
-
-      tx.moveCall({
-        target: `${PACKAGE_ID}::${MODULES.TRADING}::deposit_to_trading`,
-        typeArguments: [USDC.TYPE],
-        arguments: [
-          tx.object(tradingVaultId),
-          paymentCoin,
-        ],
-      });
-
-      const result = await signAndExecute({ transaction: tx });
-      setTxStatus(`Deposited! TX: ${result.digest.slice(0, 8)}...`);
-      setAmount('');
-
-      setTimeout(() => {
-        fetchTradingVault();
-        setTxStatus(null);
-      }, 2000);
-    } catch (e) {
-      console.error('Deposit error:', e);
-      setTxStatus(`Error: ${e instanceof Error ? e.message : 'Deposit failed'}`);
-    } finally {
-      setLoading(false);
+    } catch {
+      // No DEEP coins found
     }
-  };
 
-  // Authorize Trade
-  const handleAuthorizeTrade = async () => {
-    if (!account || !tradingModuleId || !tradingVaultId || !leaderTradeCapId || !amount) return;
+    const [zeroCoin] = tx.moveCall({
+      target: '0x2::coin::zero',
+      typeArguments: [DEEPBOOK.DEEP],
+    });
+    return [zeroCoin];
+  }
 
-    setTxStatus('Authorizing trade...');
-    setLoading(true);
-
-    try {
-      const tradeAmount = parseUsdc(amount);
-      const pair = TRADING_PAIRS[selectedPair];
-
-      // Simple hash for base/quote types
-      const baseTypeHash = selectedPair * 2 + 1;
-      const quoteTypeHash = selectedPair * 2 + 2;
-
-      const tx = new Transaction();
-
-      tx.moveCall({
-        target: `${PACKAGE_ID}::${MODULES.TRADING}::authorize_trade`,
-        typeArguments: [USDC.TYPE],
-        arguments: [
-          tx.object(tradingModuleId),
-          tx.object(tradingVaultId),
-          tx.object(leaderTradeCapId),
-          tx.pure.u64(baseTypeHash),
-          tx.pure.u64(quoteTypeHash),
-          tx.pure.u64(tradeAmount),
-          tx.pure.bool(tradeType === 'buy'),
-          tx.pure.u64(0), // min_output
-          tx.pure.u64(300), // expiry: 5 minutes
-          tx.object('0x6'), // Clock
-        ],
-      });
-
-      const result = await signAndExecute({ transaction: tx });
-      setTxStatus(`Trade authorized! TX: ${result.digest.slice(0, 8)}...`);
-      setAmount('');
-
-      setTimeout(() => {
-        fetchTradingVault();
-        setTxStatus(null);
-      }, 2000);
-    } catch (e) {
-      console.error('Authorize trade error:', e);
-      setTxStatus(`Error: ${e instanceof Error ? e.message : 'Authorization failed'}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ============ Render ============
 
   if (!isLeader) {
     return (
@@ -325,67 +475,38 @@ export default function LeaderTradingPanel({
     );
   }
 
+  const pair = TRADING_PAIRS[selectedPair];
+  const hasAssetVault = assetVaults.some((v) => v.assetType === pair?.baseType);
+
   return (
     <div className="bg-black border border-border">
       {/* Header */}
       <div className="border-b border-border p-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-black text-lg">Leader Trading</h3>
-          {tradingVault?.paused && (
-            <span className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded">
-              PAUSED
-            </span>
-          )}
+          <button
+            onClick={() => {
+              fetchAssetVaults();
+              fetchVaultBalance();
+              fetchLeaderCap();
+            }}
+            className="text-gray-400 hover:text-white transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw size={14} />
+          </button>
         </div>
-        <p className="text-xs text-gray-400">
-          Trade vault assets via DeepBook
-        </p>
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <Wallet size={12} />
+          <span>Vault USDC: ${vaultUsdcBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+        </div>
+        {!leaderCapId && (
+          <div className="mt-2 text-xs text-yellow-400">
+            <AlertCircle className="inline mr-1" size={12} />
+            LeaderCap not found. You may not be the vault leader.
+          </div>
+        )}
       </div>
-
-      {/* Trading Vault Status */}
-      {tradingVault ? (
-        <div className="border-b border-border p-4 space-y-2">
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-400">Trading Balance</span>
-            <span className="font-mono font-bold text-primary">
-              ${tradingVault.balance.toFixed(2)}
-            </span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-gray-500">Daily Traded</span>
-            <span className="text-gray-400">
-              ${tradingVault.dailyTraded.toFixed(2)} / ${tradingVault.dailyLimit.toFixed(2)}
-            </span>
-          </div>
-          <div className="w-full bg-white/10 h-1 rounded">
-            <div
-              className="bg-primary h-1 rounded"
-              style={{
-                width: `${Math.min(100, (tradingVault.dailyTraded / tradingVault.dailyLimit) * 100)}%`
-              }}
-            />
-          </div>
-        </div>
-      ) : (
-        <div className="border-b border-border p-4">
-          <div className="text-center py-4">
-            <AlertCircle className="mx-auto mb-2 text-yellow-400" size={32} />
-            <p className="text-sm text-gray-400 mb-3">
-              Trading vault not set up
-            </p>
-            <button
-              onClick={handleCreateTradingVault}
-              disabled={loading}
-              className="bg-primary text-black px-4 py-2 text-sm font-bold"
-            >
-              {loading ? (
-                <Loader2 className="animate-spin inline mr-2" size={14} />
-              ) : null}
-              Create Trading Vault
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Tabs */}
       <div className="flex border-b border-border">
@@ -398,17 +519,17 @@ export default function LeaderTradingPanel({
           Trade
         </button>
         <button
-          onClick={() => setActiveTab('manage')}
+          onClick={() => setActiveTab('assets')}
           className={`flex-1 py-2 text-sm font-bold uppercase tracking-widest transition-colors ${
-            activeTab === 'manage' ? 'text-primary border-b-2 border-primary' : 'text-gray-500'
+            activeTab === 'assets' ? 'text-primary border-b-2 border-primary' : 'text-gray-500'
           }`}
         >
-          Manage
+          Assets
         </button>
       </div>
 
       {/* Trade Tab */}
-      {activeTab === 'trade' && tradingVault && (
+      {activeTab === 'trade' && (
         <div className="p-4 space-y-4">
           {/* Buy/Sell Toggle */}
           <div className="flex border border-white/10 rounded">
@@ -446,18 +567,26 @@ export default function LeaderTradingPanel({
               onChange={(e) => setSelectedPair(Number(e.target.value))}
               className="w-full bg-white/5 border border-white/10 px-4 py-2 text-white"
             >
-              {TRADING_PAIRS.map((pair, i) => (
+              {TRADING_PAIRS.map((p, i) => (
                 <option key={i} value={i} className="bg-black">
-                  {pair.name}
+                  {p.name}
                 </option>
               ))}
             </select>
           </div>
 
+          {/* Asset Vault Check */}
+          {!hasAssetVault && (
+            <div className="bg-yellow-500/10 border border-yellow-500/30 p-3 text-xs text-yellow-400">
+              <AlertCircle className="inline mr-1" size={12} />
+              No asset vault for <strong>{pair?.base}</strong>. Go to the Assets tab to create one before trading.
+            </div>
+          )}
+
           {/* Amount */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">
-              {tradeType === 'buy' ? 'USDC Amount' : 'Token Amount'}
+              {tradeType === 'buy' ? `USDC Amount` : `${pair?.base} Amount`}
             </label>
             <input
               type="number"
@@ -466,6 +595,22 @@ export default function LeaderTradingPanel({
               placeholder="0.00"
               className="w-full bg-white/5 border border-white/10 px-4 py-3 text-white placeholder:text-gray-600 focus:border-primary/50 outline-none transition-colors text-lg font-mono"
             />
+            {tradeType === 'buy' && (
+              <div className="text-xs text-gray-500 mt-1">
+                Available: ${vaultUsdcBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })} USDC in vault
+              </div>
+            )}
+            {tradeType === 'sell' && (
+              <div className="text-xs text-gray-500 mt-1">
+                Available: {
+                  (() => {
+                    const av = assetVaults.find((v) => v.assetType === pair?.baseType);
+                    if (!av) return '0';
+                    return (av.balance / Math.pow(10, av.decimals)).toLocaleString(undefined, { maximumFractionDigits: 4 });
+                  })()
+                } {pair?.base}
+              </div>
+            )}
           </div>
 
           {/* Slippage */}
@@ -490,23 +635,52 @@ export default function LeaderTradingPanel({
             </div>
           </div>
 
+          {/* Price Info */}
+          {(midPrice || estimatedOutput) && (
+            <div className="bg-white/5 border border-white/10 p-3 space-y-1">
+              {midPrice && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">Pool Price</span>
+                  <span className="font-mono text-white">
+                    1 {pair?.base} = ${midPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                  </span>
+                </div>
+              )}
+              {estimatedOutput && amount && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">Est. Output</span>
+                  <span className="font-mono text-primary">{estimatedOutput}</span>
+                </div>
+              )}
+              {slippageBps > 0 && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">Max Slippage</span>
+                  <span className="font-mono text-gray-300">{slippageBps / 100}%</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Status */}
           {txStatus && (
             <div
               className={`p-3 text-sm ${
                 txStatus.includes('Error')
                   ? 'bg-red-500/10 text-red-400'
-                  : 'bg-primary/10 text-primary'
+                  : txStatus.includes('Waiting')
+                    ? 'bg-blue-500/10 text-blue-400'
+                    : 'bg-primary/10 text-primary'
               }`}
             >
+              {loading && <Loader2 className="animate-spin inline mr-2" size={14} />}
               {txStatus}
             </div>
           )}
 
           {/* Submit */}
           <button
-            onClick={handleAuthorizeTrade}
-            disabled={loading || !amount || !tradingModuleId}
+            onClick={handleExecuteTrade}
+            disabled={loading || !amount || !leaderCapId || !hasAssetVault || isPending}
             className={`w-full py-3 font-black text-sm uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
               tradeType === 'buy'
                 ? 'bg-green-500 text-black hover:bg-green-400'
@@ -518,38 +692,95 @@ export default function LeaderTradingPanel({
             ) : (
               <ArrowRightLeft size={16} />
             )}
-            Authorize {tradeType === 'buy' ? 'Buy' : 'Sell'}
+            {tradeType === 'buy' ? `Buy ${pair?.base}` : `Sell ${pair?.base}`}
           </button>
 
           <p className="text-xs text-gray-500 text-center">
-            Creates authorization ticket for DeepBook swap
+            Executes atomically via DeepBook V3 in a single transaction.
           </p>
         </div>
       )}
 
-      {/* Manage Tab */}
-      {activeTab === 'manage' && (
+      {/* Assets Tab */}
+      {activeTab === 'assets' && (
         <div className="p-4 space-y-4">
-          {/* Deposit */}
+          {/* Vault USDC Balance */}
+          <div className="bg-white/5 border border-white/10 p-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-400">USDC Reserve</span>
+              <span className="font-mono font-bold text-primary">
+                ${vaultUsdcBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+
+          {/* Asset Vaults */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">
-              Deposit USDC
+              Asset Vaults
             </label>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00"
-                className="flex-1 bg-white/5 border border-white/10 px-4 py-2 text-white placeholder:text-gray-600 focus:border-primary/50 outline-none"
-              />
-              <button
-                onClick={handleDeposit}
-                disabled={loading || !amount || !tradingVaultId}
-                className="bg-primary text-black px-4 py-2 font-bold disabled:opacity-50"
-              >
-                {loading ? <Loader2 className="animate-spin" size={16} /> : 'Deposit'}
-              </button>
+
+            {assetVaults.length === 0 ? (
+              <div className="text-center py-4 text-gray-500 text-sm">
+                No asset vaults created yet
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {assetVaults.map((vault) => (
+                  <div
+                    key={vault.id}
+                    className="bg-white/5 border border-white/10 p-3 flex justify-between items-center"
+                  >
+                    <div>
+                      <span className="font-bold text-sm">{vault.symbol}</span>
+                      <span className="text-xs text-gray-500 ml-2">
+                        {vault.id.slice(0, 8)}...
+                      </span>
+                    </div>
+                    <span className="font-mono text-sm">
+                      {(vault.balance / Math.pow(10, vault.decimals)).toLocaleString(undefined, {
+                        maximumFractionDigits: 4,
+                      })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Create Asset Vault */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">
+              Create Asset Vault
+            </label>
+            <div className="space-y-2">
+              {TRADING_PAIRS.map((p, i) => {
+                const exists = assetVaults.some((v) => v.assetType === p.baseType);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => handleCreateAssetVault(p.baseType)}
+                    disabled={loading || exists || !leaderCapId}
+                    className={`w-full flex items-center justify-between px-4 py-2 text-sm border transition-colors ${
+                      exists
+                        ? 'border-green-500/30 text-green-400/50 cursor-not-allowed'
+                        : 'border-white/10 text-gray-400 hover:border-primary/50 hover:text-white'
+                    } disabled:opacity-50`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {exists ? (
+                        <span className="text-green-400 text-xs">&#10003;</span>
+                      ) : (
+                        <Plus size={14} />
+                      )}
+                      {p.base} Vault
+                    </span>
+                    <span className="text-xs text-gray-600">
+                      {exists ? 'Created' : 'Create'}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -566,32 +797,15 @@ export default function LeaderTradingPanel({
             </div>
           )}
 
-          {/* Trading Info */}
-          {tradingVault && (
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-gray-400">Trading Vault ID</span>
-                <span className="font-mono text-gray-500">
-                  {tradingVault.id.slice(0, 8)}...
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Max Trade Size</span>
-                <span>${tradingVault.maxTradeSize.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Daily Limit</span>
-                <span>${tradingVault.dailyLimit.toLocaleString()}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Note */}
+          {/* Info */}
           <div className="bg-blue-500/10 border border-blue-500/30 p-3 text-xs text-blue-400">
-            <p className="font-bold mb-1">DeepBook Integration</p>
+            <p className="font-bold mb-1">DeepBook V3 Integration</p>
             <p className="text-blue-300/80">
-              Trades are executed via DeepBook V3 using PTB.
-              Authorization creates a ticket that is consumed in the swap transaction.
+              Asset vaults hold traded assets. Create a vault for each asset type before trading.
+              All trades execute atomically via DeepBook V3 on-chain order book.
+            </p>
+            <p className="text-blue-300/60 mt-1">
+              Note: Testnet uses DBUSDC. Pools may have limited liquidity.
             </p>
           </div>
         </div>
