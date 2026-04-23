@@ -23,6 +23,12 @@ import {
   formatUsdc,
   parseUsdc,
 } from '@/lib/contracts/config';
+import {
+  getDeepBookClient,
+  appendMarginLong,
+  appendMarginShort,
+  MARGIN_POOLS,
+} from '@/lib/deepbook';
 
 // ============ Types ============
 
@@ -237,22 +243,64 @@ export default function MarginTradingPanel({
     }
   };
 
-  // ============ Execute Margin Trade (Single PTB) ============
+  // ============ Create DeepBook MarginManager ============
+
+  const handleCreateMarginManager = async () => {
+    if (!account) return;
+
+    setLoading(true);
+    setTxStatus('Creating DeepBook MarginManager...');
+
+    try {
+      const poolKey = 'SUI_DBUSDC';
+      const dbClient = getDeepBookClient(client, account.address, 'testnet');
+
+      const tx = new Transaction();
+      dbClient.marginManager.newMarginManager(poolKey)(tx);
+
+      const result = await signAndExecute({ transaction: tx });
+
+      // Find created MarginManager
+      for (const change of (result as { objectChanges?: Array<{ type: string; objectType?: string; objectId: string }> }).objectChanges || []) {
+        if (change.type === 'created' && change.objectType?.includes('MarginManager')) {
+          setMarginManagerId(change.objectId);
+          setTxStatus(`MarginManager created! ${change.objectId.slice(0, 12)}...`);
+        }
+      }
+
+      setTimeout(() => setTxStatus(null), 3000);
+    } catch (e) {
+      console.error('Create MarginManager error:', e);
+      setTxStatus(`Error: ${e instanceof Error ? e.message : 'Failed'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ============ Execute Margin Trade (SDK + Vault PTB) ============
 
   const handleMarginTrade = async () => {
-    if (!account || !leaderCapId || !marginAccount || !amount) return;
+    if (!account || !leaderCapId || !marginAccount || !amount || !marginManagerId) return;
 
-    const pair = TRADING_PAIRS[selectedPair];
     const isLong = tradeDirection === 'long';
+    const collateralAmount = parseFloat(amount);
+    const poolKey = 'SUI_DBUSDC'; // Primary pool
+    const managerKey = 'vault_mm';
 
     setLoading(true);
     setTxStatus('Building margin trade...');
 
     try {
-      const depositAmount = parseUsdc(amount);
+      // Initialize DeepBook client with our margin manager
+      const dbClient = getDeepBookClient(client, account.address, 'testnet', {
+        [managerKey]: { address: marginManagerId, poolKey },
+      });
+
       const tx = new Transaction();
 
-      // Step 1: Authorize margin deposit from vault
+      // Step 1: Extract USDC from vault via our authorization system
+      const depositAmount = parseUsdc(amount);
+
       const [depositAuth] = tx.moveCall({
         target: `${PACKAGE_ID}::${MODULES.MARGIN}::authorize_margin_deposit`,
         typeArguments: [USDC.TYPE],
@@ -261,12 +309,11 @@ export default function MarginTradingPanel({
           tx.object(leaderCapId),
           tx.object(marginAccount.id),
           tx.pure.u64(depositAmount),
-          tx.pure.u64(600), // 10 min expiry
-          tx.object('0x6'), // Clock
+          tx.pure.u64(600),
+          tx.object('0x6'),
         ],
       });
 
-      // Step 2: Extract USDC from vault
       const [usdcCoin] = tx.moveCall({
         target: `${PACKAGE_ID}::${MODULES.MARGIN}::consume_margin_deposit`,
         typeArguments: [USDC.TYPE],
@@ -278,109 +325,52 @@ export default function MarginTradingPanel({
         ],
       });
 
-      // Step 3-6: DeepBook Margin operations (composed in PTB)
-      // These call DeepBook Margin contracts directly
-      //
-      // Note: The MarginManager must exist first. If not, create one:
-      // deepbook_margin::margin_manager::new<Base, Quote>(pool, registry, margin_registry, clock)
-      //
-      // Then:
-      // 3. Deposit USDC to MarginManager
-      // 4. Borrow assets (leverage)
-      // 5. Place order (long or short)
-      // 6. Withdraw settled amounts
-      //
-      // For now, we deposit the USDC coin to the MarginManager.
-      // The actual borrow + order is composed based on direction:
+      // Step 2: Deposit extracted USDC to MarginManager via SDK
+      dbClient.marginManager.depositQuote({
+        managerKey,
+        coin: usdcCoin,
+      })(tx);
 
-      if (marginManagerId) {
-        // Deposit to existing MarginManager
-        tx.moveCall({
-          target: `${DEEPBOOK_MARGIN.PACKAGE_ID}::margin_manager::deposit`,
-          typeArguments: [pair.baseType, pair.quoteType, USDC.TYPE],
-          arguments: [
-            tx.object(marginManagerId),
-            tx.object(DEEPBOOK_MARGIN.REGISTRY_ID),
-            tx.object(pair.poolId), // base price oracle (placeholder)
-            tx.object(pair.poolId), // quote price oracle (placeholder)
-            usdcCoin,
-            tx.object('0x6'),
-          ],
+      // Step 3: Borrow + Place order via SDK
+      if (isLong) {
+        appendMarginLong(dbClient, tx, {
+          managerKey,
+          poolKey,
+          collateralAmount: 0, // Already deposited via coin above
+          leverage,
+          direction: 'long',
         });
-
-        // Borrow and place order based on direction
-        if (isLong) {
-          // LONG: Borrow more quote (USDC), buy base
-          const borrowAmount = BigInt(leverage - 1) * depositAmount;
-          if (borrowAmount > 0n) {
-            tx.moveCall({
-              target: `${DEEPBOOK_MARGIN.PACKAGE_ID}::margin_manager::borrow_quote`,
-              typeArguments: [pair.baseType, pair.quoteType],
-              arguments: [
-                tx.object(marginManagerId),
-                tx.object(DEEPBOOK_MARGIN.REGISTRY_ID),
-                tx.object(DEEPBOOK_MARGIN.POOLS.USDC),
-                tx.object(pair.poolId), // base oracle
-                tx.object(pair.poolId), // quote oracle
-                tx.object(pair.poolId), // DeepBook pool
-                tx.pure.u64(borrowAmount),
-                tx.object('0x6'),
-              ],
-            });
-          }
-
-          // Place market buy order
-          tx.moveCall({
-            target: `${DEEPBOOK_MARGIN.PACKAGE_ID}::pool_proxy::place_market_order`,
-            typeArguments: [pair.baseType, pair.quoteType],
-            arguments: [
-              tx.object(DEEPBOOK_MARGIN.REGISTRY_ID),
-              tx.object(marginManagerId),
-              tx.object(pair.poolId),
-              tx.pure.u64(Date.now()), // client_order_id
-              tx.pure.u8(0), // self_matching_option
-              tx.pure.u64(depositAmount * BigInt(leverage)), // quantity
-              tx.pure.bool(true), // is_bid (buy)
-              tx.pure.bool(true), // pay_with_deep
-              tx.object('0x6'),
-            ],
-          });
-        } else {
-          // SHORT: Borrow base asset, sell for quote
-          // First borrow base
-          tx.moveCall({
-            target: `${DEEPBOOK_MARGIN.PACKAGE_ID}::margin_manager::borrow_base`,
-            typeArguments: [pair.baseType, pair.quoteType],
-            arguments: [
-              tx.object(marginManagerId),
-              tx.object(DEEPBOOK_MARGIN.REGISTRY_ID),
-              tx.object(DEEPBOOK_MARGIN.POOLS.SUI), // base margin pool
-              tx.object(pair.poolId), // base oracle
-              tx.object(pair.poolId), // quote oracle
-              tx.object(pair.poolId), // DeepBook pool
-              tx.pure.u64(depositAmount * BigInt(leverage)), // borrow amount
-              tx.object('0x6'),
-            ],
-          });
-
-          // Place market sell order
-          tx.moveCall({
-            target: `${DEEPBOOK_MARGIN.PACKAGE_ID}::pool_proxy::place_market_order`,
-            typeArguments: [pair.baseType, pair.quoteType],
-            arguments: [
-              tx.object(DEEPBOOK_MARGIN.REGISTRY_ID),
-              tx.object(marginManagerId),
-              tx.object(pair.poolId),
-              tx.pure.u64(Date.now()),
-              tx.pure.u8(0),
-              tx.pure.u64(depositAmount * BigInt(leverage)),
-              tx.pure.bool(false), // is_bid = false (sell)
-              tx.pure.bool(true),
-              tx.object('0x6'),
-            ],
-          });
+        // Override: borrow based on leverage
+        if (leverage > 1) {
+          const borrowAmount = collateralAmount * (leverage - 1);
+          dbClient.marginManager.borrowQuote(managerKey, borrowAmount)(tx);
         }
+        // Market buy
+        dbClient.poolProxy.placeMarketOrder({
+          poolKey,
+          marginManagerKey: managerKey,
+          clientOrderId: Date.now().toString(),
+          quantity: collateralAmount * leverage,
+          isBid: true,
+          payWithDeep: false,
+        })(tx);
+      } else {
+        // Short: deposit collateral, borrow base, sell
+        if (leverage > 0) {
+          dbClient.marginManager.borrowBase(managerKey, collateralAmount * leverage)(tx);
+        }
+        dbClient.poolProxy.placeMarketOrder({
+          poolKey,
+          marginManagerKey: managerKey,
+          clientOrderId: Date.now().toString(),
+          quantity: collateralAmount * leverage,
+          isBid: false,
+          payWithDeep: false,
+        })(tx);
       }
+
+      // Step 4: Settle
+      dbClient.poolProxy.withdrawSettledAmounts(managerKey)(tx);
 
       setTxStatus('Waiting for wallet approval...');
       const result = await signAndExecute({ transaction: tx });
@@ -651,10 +641,20 @@ export default function MarginTradingPanel({
           </button>
 
           {!marginManagerId && marginAccount && (
-            <p className="text-xs text-yellow-400 text-center">
-              <AlertTriangle className="inline mr-1" size={12} />
-              DeepBook MarginManager not found. Create one via DeepBook first.
-            </p>
+            <div className="space-y-2">
+              <p className="text-xs text-yellow-400 text-center">
+                <AlertTriangle className="inline mr-1" size={12} />
+                DeepBook MarginManager not found.
+              </p>
+              <button
+                onClick={handleCreateMarginManager}
+                disabled={loading}
+                className="w-full py-2 text-sm font-bold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/30 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="animate-spin" size={14} /> : <Zap size={14} />}
+                Create MarginManager (SUI/DBUSDC)
+              </button>
+            </div>
           )}
 
           <p className="text-xs text-gray-500 text-center">
