@@ -10,6 +10,7 @@ export const MODULES = {
   TRADING: "sui_trading",
   DEEPBOOK_MOD: "sui_deepbook",
   MARGIN: "sui_margin",
+  SEAL: "sui_seal",
   TYPES: "sui_types",
   MATH: "sui_math",
 } as const;
