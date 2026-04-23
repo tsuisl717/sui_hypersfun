@@ -9,6 +9,7 @@ export const MODULES = {
   VAULT: "sui_vault",
   TRADING: "sui_trading",
   DEEPBOOK_MOD: "sui_deepbook",
+  MARGIN: "sui_margin",
   TYPES: "sui_types",
   MATH: "sui_math",
 } as const;
@@ -99,6 +100,21 @@ export function parseUsdc(amount: string | number): bigint {
   const num = typeof amount === 'string' ? parseFloat(amount) : amount;
   return BigInt(Math.floor(num * 1_000_000));
 }
+
+// DeepBook Margin Configuration (Mainnet addresses, testnet TBD)
+export const DEEPBOOK_MARGIN = {
+  PACKAGE_ID: process.env.NEXT_PUBLIC_MARGIN_PACKAGE_ID || "0xfbd322126f1452fd4c89aedbaeb9fd0c44df9b5cedbe70d76bf80dc086031377",
+  REGISTRY_ID: process.env.NEXT_PUBLIC_MARGIN_REGISTRY_ID || "0x0e40998b359a9ccbab22a98ed21bd4346abf19158bc7980c8291908086b3a742",
+  // Margin pools (mainnet)
+  POOLS: {
+    SUI: "0x53041c6f86c4782aabbfc1d4fe234a6d37160310c7ee740c915f0a01b7127344",
+    USDC: "0xba473d9ae278f10af75c50a8fa341e9c6a1c087dc91a3f23e8048baf67d0754f",
+    DEEP: "0x1d723c5cd113296868b55208f2ab5a905184950dd59c48eb7345607d6b5e6af7",
+  },
+  // DeepBook V3 mainnet (for margin orders)
+  DEEPBOOK_PACKAGE_ID: "0x337f4f4f6567fcd778d5454f27c16c70e2f274cc6377ea6249ddf491482ef497",
+  DEEPBOOK_REGISTRY_ID: "0xaf16199a2dff736e9f07a845f23c5da6df6f756eddb631aed9d24a93efc4549d",
+};
 
 // DeepBook V3 Configuration (Testnet - updated April 2026)
 export const DEEPBOOK = {

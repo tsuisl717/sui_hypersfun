@@ -11,6 +11,7 @@ import Broadcast from "@/components/Broadcast";
 import TradingPanel from "@/components/bonding-curve-vault/TradingPanel";
 import TradeHistory from "@/components/bonding-curve-vault/TradeHistory";
 import LeaderTradingPanel from "@/components/bonding-curve-vault/LeaderTradingPanel";
+import MarginTradingPanel from "@/components/bonding-curve-vault/MarginTradingPanel";
 import { VaultInfo, Trade, UserShare } from "@/components/bonding-curve-vault/types";
 import { PACKAGE_ID, MODULES, OBJECTS, USDC, formatUsdc, parseUsdc } from "@/lib/contracts/config";
 import { loadVaultByAddress } from "@/lib/vaults";
@@ -440,6 +441,11 @@ export default function VaultPage({ params }: { params: Promise<{ id: string }> 
           {account && vault.leader.toLowerCase() === account.address.toLowerCase() && (
             <div className="border-t border-border">
               <LeaderTradingPanel
+                vaultId={vaultId}
+                leaderAddress={vault.leader}
+                isLeader={true}
+              />
+              <MarginTradingPanel
                 vaultId={vaultId}
                 leaderAddress={vault.leader}
                 isLeader={true}
