@@ -5,6 +5,7 @@ import { Search, Plus, Wallet, Menu, X } from 'lucide-react';
 import { ConnectButton, useCurrentAccount } from '@mysten/dapp-kit';
 import { useRouter } from 'next/navigation';
 import Logo from './Logo';
+import ZkLoginButton from './ZkLoginButton';
 import { formatAddress } from '@/lib/contracts/config';
 
 interface HeaderProps {
@@ -88,6 +89,9 @@ export default function Header({ searchQuery, onSearchChange, onLogoClick }: Hea
             <span className="lg:hidden">CREATE</span>
           </button>
 
+          {/* zkLogin (Google) */}
+          <ZkLoginButton />
+
           {/* SUI Wallet Connect Button */}
           <ConnectButton
             connectText="Connect Wallet"
@@ -137,6 +141,11 @@ export default function Header({ searchQuery, onSearchChange, onLogoClick }: Hea
               <Plus size={16} strokeWidth={3} />
               Create Vault
             </button>
+
+            {/* zkLogin (Google) - Mobile */}
+            <div className="w-full">
+              <ZkLoginButton />
+            </div>
 
             {/* SUI Wallet Connect - Mobile */}
             <div className="w-full">
