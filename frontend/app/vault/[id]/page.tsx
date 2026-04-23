@@ -12,6 +12,7 @@ import TradingPanel from "@/components/bonding-curve-vault/TradingPanel";
 import TradeHistory from "@/components/bonding-curve-vault/TradeHistory";
 import LeaderTradingPanel from "@/components/bonding-curve-vault/LeaderTradingPanel";
 import MarginTradingPanel from "@/components/bonding-curve-vault/MarginTradingPanel";
+import VaultHistoryWalrus from "@/components/bonding-curve-vault/VaultHistoryWalrus";
 import { VaultInfo, Trade, UserShare } from "@/components/bonding-curve-vault/types";
 import { PACKAGE_ID, MODULES, OBJECTS, USDC, formatUsdc, parseUsdc } from "@/lib/contracts/config";
 import { loadVaultByAddress } from "@/lib/vaults";
@@ -114,7 +115,7 @@ export default function VaultPage({ params }: { params: Promise<{ id: string }> 
           // timestampMs is a number (milliseconds) or string
           const tsMs = typeof event.timestampMs === 'string'
             ? parseInt(event.timestampMs)
-            : (event.timestampMs as number);
+            : Number(event.timestampMs ?? 0);
 
           allTrades.push({
             id: event.id.txDigest + "-buy",
@@ -137,7 +138,7 @@ export default function VaultPage({ params }: { params: Promise<{ id: string }> 
           // timestampMs is a number (milliseconds) or string
           const tsMs = typeof event.timestampMs === 'string'
             ? parseInt(event.timestampMs)
-            : (event.timestampMs as number);
+            : Number(event.timestampMs ?? 0);
 
           allTrades.push({
             id: event.id.txDigest + "-sell",
@@ -452,6 +453,25 @@ export default function VaultPage({ params }: { params: Promise<{ id: string }> 
               />
             </div>
           )}
+
+          {/* Walrus Vault History - visible to all */}
+          <div className="border-t border-border">
+            <VaultHistoryWalrus
+              vaultId={vaultId}
+              isLeader={!!(account && vault.leader.toLowerCase() === account.address.toLowerCase())}
+              trades={trades.map(t => ({
+                vaultId,
+                txDigest: t.txHash,
+                timestamp: t.timestamp,
+                type: t.type,
+                inputAmount: Number(t.usdcAmount),
+                outputAmount: Number(t.tokenAmount),
+              }))}
+              currentNav={Number(vault.nav)}
+              totalSupply={Number(vault.totalSupply)}
+              usdcReserve={Number(vault.tvl)}
+            />
+          </div>
         </div>
       </main>
 

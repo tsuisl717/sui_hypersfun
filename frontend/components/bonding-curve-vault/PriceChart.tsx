@@ -9,6 +9,7 @@ import {
   LineSeries,
   CandlestickSeries,
   HistogramSeries,
+  UTCTimestamp,
 } from 'lightweight-charts';
 import { Trade, ChartCandle } from './types';
 
@@ -124,7 +125,7 @@ export default function PriceChart({ trades, currentPrice, tokenSymbol = 'TOKEN'
 
       if (candles.length > 0) {
         candleSeries.setData(candles.map(c => ({
-          time: c.time as number,
+          time: c.time as UTCTimestamp,
           open: c.open,
           high: c.high,
           low: c.low,
@@ -139,7 +140,7 @@ export default function PriceChart({ trades, currentPrice, tokenSymbol = 'TOKEN'
 
       if (candles.length > 0) {
         lineSeries.setData(candles.map(c => ({
-          time: c.time as number,
+          time: c.time as UTCTimestamp,
           value: c.close,
         })));
       }
@@ -158,7 +159,7 @@ export default function PriceChart({ trades, currentPrice, tokenSymbol = 'TOKEN'
     // Set volume data
     if (candles.length > 0) {
       volumeSeries.setData(candles.map(c => ({
-        time: c.time as number,
+        time: c.time as UTCTimestamp,
         value: c.volume || 0,
         color: c.close >= c.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)',
       })));
