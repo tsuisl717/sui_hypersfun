@@ -339,7 +339,7 @@ export default function LeaderTradingPanel({
 
         // Step 3: DeepBook swap USDC → Base Asset
         const [baseOut, quoteOut, deepOut] = tx.moveCall({
-          target: `${DEEPBOOK.PACKAGE_ID}::pool::swap_exact_quote_for_base`,
+          target: `${DEEPBOOK.packageId}::pool::swap_exact_quote_for_base`,
           typeArguments: [pair.baseType, pair.quoteType],
           arguments: [
             tx.object(pair.poolId),
@@ -379,7 +379,7 @@ export default function LeaderTradingPanel({
 
         // Step 3: DeepBook swap Base Asset → USDC
         const [baseOut, quoteOut, deepOut] = tx.moveCall({
-          target: `${DEEPBOOK.PACKAGE_ID}::pool::swap_exact_base_for_quote`,
+          target: `${DEEPBOOK.packageId}::pool::swap_exact_base_for_quote`,
           typeArguments: [pair.baseType, pair.quoteType],
           arguments: [
             tx.object(pair.poolId),

@@ -177,7 +177,7 @@ export default function MarginTradingPanel({
       const objects = await client.getOwnedObjects({
         owner: account.address,
         filter: {
-          Package: DEEPBOOK_MARGIN.PACKAGE_ID,
+          Package: DEEPBOOK_MARGIN.packageId,
         },
         options: { showContent: true, showType: true },
       });
@@ -668,7 +668,7 @@ export default function MarginTradingPanel({
                 DeepBook Margin Package
               </label>
               <p className="font-mono text-xs text-gray-500 break-all">
-                {DEEPBOOK_MARGIN.PACKAGE_ID}
+                {DEEPBOOK_MARGIN.packageId}
               </p>
             </div>
             <div>
@@ -676,7 +676,7 @@ export default function MarginTradingPanel({
                 Margin Registry
               </label>
               <p className="font-mono text-xs text-gray-500 break-all">
-                {DEEPBOOK_MARGIN.REGISTRY_ID}
+                {DEEPBOOK_MARGIN.registryId}
               </p>
             </div>
           </div>
