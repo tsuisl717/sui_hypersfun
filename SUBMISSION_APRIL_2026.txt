@@ -1,0 +1,255 @@
+SUI HypersFun
+Monthly Submission — April 2026
+
+1. Primary GitHub Repository
+
+https://github.com/tsuisl717/sui_hypersfun
+
+2. GitHub Username
+
+Author: tsuisl717
+
+3. Execution Path
+
+- Move smart contracts
+- Application / backend integration (SDK / RPC / Indexer)
+- Integration with Sui ecosystem infrastructure (DeepBook, DeepBook Margin, Walrus, Seal, zkLogin)
+
+4. Work Completed This Month
+
+Core vault contracts (carried from March, refined in April)
+
+The vault system is built around a bonding curve AMM that prices vault tokens against a USDC reserve. Users hold VaultShare NFTs with per-share entry NAV and acquisition timestamps, enabling individual performance fee and time-based exit fee calculation. TWAP-based NAV protection prevents single-block price manipulation. Exit fees step down from 15% to 0% over 30 days.
+
+The factory module handles vault creation, graduation tiers, and global settings (min deposit, max buy limits). Bonding curve math lives in sui_math.move for testability.
+
+DeepBook V3 spot integration (refined April)
+
+Refactored the spot trading flow to use single-PTB atomic execution. The authorize_swap function now returns the SwapAuthorization object (instead of transferring it), so the entire authorize -> consume -> DeepBook swap -> deposit flow executes in one transaction with one wallet signature. Previously required two separate transactions.
+
+Added DeepBook pool price quote fetching in the frontend — shows mid price and estimated output before trade execution.
+
+DeepBook Margin integration (NEW — April)
+
+This is the month's biggest addition. Built a complete margin trading layer that lets Leaders execute leveraged long/short positions through DeepBook Margin — Sui's native margin infrastructure.
+
+New Move module: sui_margin.move
+- MarginAccount tracks allocation limits, max leverage, cumulative P&L, trade count
+- authorize_margin_deposit / consume_margin_deposit extracts USDC from vault
+- authorize_margin_return / return_margin_funds returns funds with P&L tracking
+- Max leverage configurable per vault (default 5x, max 20x)
+- Max allocation configurable (default 50% of vault reserve)
+- Leader can only trade — cannot withdraw to personal wallet
+
+Frontend: MarginTradingPanel.tsx with @mysten/deepbook-v3 SDK
+- Long/Short toggle with leverage slider (1x-5x)
+- Position size calculator with liquidation risk indicator
+- "Create MarginManager" button for one-click DeepBook Margin setup
+- Full PTB composition: vault auth -> SDK depositQuote -> borrowQuote/Base -> placeMarketOrder -> withdrawSettledAmounts
+- SDK handles Pyth oracle price feeds and pool routing automatically
+
+The execution path is now:
+  sui_margin (vault authorization) -> DeepBook SDK (deposit/borrow/trade) -> DeepBook Margin (on-chain)
+
+Leverage capability on mainnet: ~5x SUI/USDC, ~3x DEEP/USDC.
+
+Why DeepBook Margin instead of Aftermath perpetuals:
+- 100% Sui-native, zero third-party dependency
+- Shares liquidity with the entire DeepBook spot order book
+- PTB atomic composability with our vault contracts
+- No funding rates — uses interest rate model instead
+- Real spot assets, not synthetic positions
+
+Seal MEV protection (NEW — April)
+
+New Move module: sui_seal.move
+- seal_approve entry function for Seal key server verification (time-lock encryption policy)
+- seal_approve_vault_member for vault-member-aware access control
+- SealedTradeIntent on-chain object stores encrypted trade data
+- create_sealed_intent / mark_intent_executed lifecycle management
+- Leader encrypts trade intent before execution — decryption only allowed after time lock expires
+- Prevents front-running and sandwich attacks on Leader trades
+
+Frontend: seal.ts with @mysten/seal SDK
+- encryptTradeIntent — time-lock encryption of trade parameters
+- buildSealApproveTx — builds verification transaction for Seal key servers
+- Testnet key servers configured
+
+Anti-MEV flow:
+  Leader encrypts intent -> 30s time lock -> on-chain storage -> time expires -> decrypt -> execute
+
+Walrus decentralized storage (NEW — April)
+
+Frontend: walrus.ts (REST API, no SDK dependency)
+- uploadToWalrus / readFromWalrus — blob upload/download via publisher/aggregator
+- VaultHistory type with trade records, NAV snapshots, chain of custody (previous blob IDs)
+- appendTradeToHistory / appendSnapshotToHistory helpers
+
+Component: VaultHistoryWalrus.tsx
+- Upload NAV snapshots and trade history to Walrus
+- Load and display immutable records by blob ID
+- Shows trade history, NAV timeline, and previous blob chain
+- Anyone can verify vault's track record using the blob ID
+
+zkLogin social login (NEW — April)
+
+Integrated @mysten/enoki for managed zkLogin:
+- EnokiFlowProvider added to app providers
+- ZkLoginButton component: "Sign in with Google" with Google branding
+- /auth/callback page handles OAuth redirect and ZK proof generation
+- Shows connected zkLogin address when authenticated
+- Users can interact with vaults without installing a wallet extension
+- Configurable via NEXT_PUBLIC_GOOGLE_CLIENT_ID and NEXT_PUBLIC_ENOKI_API_KEY
+
+Test infrastructure (NEW — April)
+
+- test_usdc.move: testnet token with shared TreasuryCap (anyone can mint)
+- test-tusdc-e2e.js: comprehensive 6-step E2E test
+- test-leader-trade.js: Leader trading flow test
+- test-e2e.js: CLI test runner with deploy/create-vault/buy/sell/swap/margin/seal commands
+
+5. Sui Stack Components Used
+
+Component              Status
+DeepBook V3            Integrated — Leader spot trading via single-PTB atomic execution
+DeepBook Margin        Integrated — Leader leveraged long/short (up to 5x)
+Walrus                 Integrated — immutable vault trade history storage
+Seal                   Integrated — time-lock encryption for MEV protection
+zkLogin (Enoki)        Integrated — Google social login, no wallet needed
+Aftermath Finance      Evaluated and deprioritized — DeepBook Margin covers the use case natively
+
+6. Integration Description
+
+DeepBook V3 (spot)
+
+The integration lives in sui_deepbook.move. authorize_swap returns a SwapAuthorization that gets consumed in the same PTB — single transaction, single signature. The full flow: authorize -> consume (extract USDC from vault) -> DeepBook swap_exact_quote_for_base -> deposit_swap_output (deposit base asset to AssetVault). If any step fails, the entire transaction reverts atomically.
+
+AssetVault<T> holds non-USDC assets from swaps (SUI, DEEP, etc.) and the NAV calculation includes their value so token pricing reflects the full portfolio.
+
+DeepBook Margin (leveraged trading)
+
+sui_margin.move manages the authorization layer between the vault and DeepBook Margin. The frontend uses @mysten/deepbook-v3 SDK which handles Pyth oracle price feeds, margin pool routing, and order placement automatically.
+
+The vault authorization ensures:
+- Funds can only be extracted with Leader's authorization + time-limited auth objects
+- Maximum allocation limits prevent over-exposure (default 50% of vault reserve)
+- All funds must be returned to the vault — Leader cannot withdraw to personal wallet
+- Cumulative P&L is tracked on-chain per margin account
+
+DeepBook Margin is spot margin (not perpetuals):
+- Long: deposit USDC collateral -> borrow more USDC -> buy base asset
+- Short: deposit USDC collateral -> borrow base asset -> sell for USDC
+- Liquidation: automated on-chain when risk ratio drops below threshold
+
+Seal (MEV protection)
+
+sui_seal.move implements the seal_approve entry function that Seal key servers call to verify decryption access. Uses the Time-Lock Encryption (TLE) pattern where the identity is a BCS-encoded u64 timestamp. The key servers will only release decryption keys after the timestamp has passed.
+
+SealedTradeIntent objects store the encrypted trade data on-chain. The Leader submits their encrypted intent, waits for the time lock, then decrypts and executes.
+
+Walrus (trade history)
+
+Uses Walrus REST API (publisher/aggregator) for storing vault trade history and NAV snapshots as immutable blobs. No SDK dependency — direct HTTP PUT/GET. Each upload returns a blob ID that anyone can use to verify the vault's complete track record. Blob chain (previous blob IDs stored in each upload) provides an audit trail.
+
+zkLogin (social login)
+
+Uses @mysten/enoki for managed zkLogin. Handles salt management, ZK proof generation, and session management. Users authenticate with Google OAuth, get a Sui address derived from their Google identity, and can interact with vaults without any wallet extension. Combined with Enoki's sponsored transactions, the UX is comparable to Web2 fintech apps.
+
+7. Verifiable Technical Evidence
+
+Main repository: github.com/tsuisl717/sui_hypersfun
+
+Move contracts (9 modules, ~3,200 lines):
+- sources/sui_vault.move — bonding curve, NAV, TWAP, buy/sell, VaultShare NFT
+- sources/sui_factory.move — vault factory, settings, graduation tiers
+- sources/sui_trading.move — legacy trading authorization system
+- sources/sui_deepbook.move — DeepBook V3 spot integration, single-PTB auth
+- sources/sui_margin.move — DeepBook Margin authorization, P&L tracking
+- sources/sui_seal.move — Seal MEV protection, time-lock encryption policy
+- sources/sui_math.move — bonding curve math utilities
+- sources/sui_types.move — shared type definitions
+- sources/test_usdc.move — testnet mint token
+
+Frontend (Next.js + @mysten/dapp-kit):
+- components/bonding-curve-vault/TradingPanel.tsx — buy/sell vault tokens
+- components/bonding-curve-vault/LeaderTradingPanel.tsx — DeepBook spot trading
+- components/bonding-curve-vault/MarginTradingPanel.tsx — DeepBook Margin long/short
+- components/bonding-curve-vault/VaultHistoryWalrus.tsx — Walrus history viewer
+- components/bonding-curve-vault/PriceChart.tsx — lightweight-charts v5
+- components/ZkLoginButton.tsx — Google zkLogin button
+- app/auth/callback/page.tsx — OAuth callback handler
+- lib/deepbook.ts — DeepBook V3 SDK wrapper
+- lib/walrus.ts — Walrus REST API client
+- lib/seal.ts — Seal encryption utilities
+- lib/contracts/config.ts — contract addresses, DeepBook + Margin config
+
+NPM dependencies added this month:
+- @mysten/deepbook-v3 — DeepBook V3 SDK with margin support
+- @mysten/enoki — managed zkLogin service
+- @mysten/seal — Seal encryption SDK
+
+8. Deployment Proof
+
+V6 deployment (April 2026) — testnet:
+
+Object              ID
+Package             0xd2e920ef17bde30f2a3ec7a89c3ab26d7fa8c9010074776e1d2c0e0d9fdf6c05
+Factory             0x04ad2333d82bf89abf608a485cee7c2cfa734b3502bac53938a78af5cb450c46
+Admin Cap           0x2ba0a5e3c9f2b767072ca90bffa1b888bf3e64becbea243743d013f23cec67c8
+Upgrade Cap         0xbb7470ce14cf85d6e7d8e0c3831f139667df741f6aafbda72f36114abc62f097
+tUSDC TreasuryCap   0xaaf7c19379f463427a9572c3536b2be002e8067b8505cdb5f041a91441974cbd
+
+Modules published: sui_deepbook, sui_factory, sui_margin, sui_math, sui_seal, sui_trading, sui_types, sui_vault, test_usdc
+
+tUSDC token type: 0xd2e920ef17bde30f2a3ec7a89c3ab26d7fa8c9010074776e1d2c0e0d9fdf6c05::test_usdc::TEST_USDC
+
+E2E test vault (created during testing):
+
+Object              ID
+Vault               0x352ea52814f0c2448e4676bf41b37ff9f9dfaaf1cd75712c6387c066b7bdace8
+Leader Cap          0xbaca3ecd65a636d41defbef249f20639741d26f3b68b573c183a1309d27c6d9c
+Margin Account      0xa13407b79d3159b87b6b0251f9438c5babc20eb8a57d9d90a82bd280777e655e
+Sealed Intent       0xfd10660b2b8934e474196890dc44ccd46ab222d905dac258be542b4a539eb00f
+
+Previous deployment (V4, March 2026 — superseded):
+
+Package             0x342c90eee2a578c7a3e7aca6b2be6163b349870d8e0240a2b54f1bf3bb9ba23f
+
+E2E test results (all pass):
+1. Create vault (tUSDC type) — PASS
+2. Buy 100 tUSDC shares (NAV $1.00, 98,995,099 tokens) — PASS
+3. Spot swap authorization round-trip (single PTB) — PASS
+4. Create margin account — PASS
+5. Margin deposit 20 tUSDC -> return with P&L tracking — PASS
+6. Sealed trade intent (30s time-lock) — PASS
+
+9. Architecture
+
+                        SUI HypersFun Vault
+                              |
+          +-------------------+-------------------+
+          |                   |                   |
+     Spot Trading      Margin Trading       MEV Protection
+    (DeepBook V3)    (DeepBook Margin)        (Seal)
+          |                   |                   |
+   authorize_swap    authorize_margin     seal_approve
+   consume_swap      consume_deposit      time-lock
+   DeepBook swap     SDK deposit/borrow   encrypt/decrypt
+   deposit_output    SDK place_order      SealedTradeIntent
+   return_to_vault   return_margin_funds
+          |                   |
+          +-------------------+
+                    |
+            Walrus Storage          zkLogin (Enoki)
+         (trade history blobs)    (Google social login)
+
+10. Next Steps
+
+- Testnet end-to-end with DeepBook Margin live trading (requires DBUSDC liquidity)
+- Mainnet deployment (DeepBook Margin pools have real liquidity)
+- Sponsored transactions via Enoki (gasless UX for zkLogin users)
+- Walrus auto-upload after each trade
+- Seal integration in LeaderTradingPanel UI (encrypt before trade)
+- Additional trading pairs (XBTC, BETH, WAL on mainnet)
+
+SUI HypersFun — April 2026
