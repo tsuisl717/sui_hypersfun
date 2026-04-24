@@ -1,17 +1,15 @@
 'use client';
 
 import { createNetworkConfig, SuiClientProvider, WalletProvider } from '@mysten/dapp-kit';
-import { getFullnodeUrl } from '@mysten/sui/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { EnokiFlowProvider } from '@mysten/enoki/react';
 import '@mysten/dapp-kit/dist/index.css';
 
 // Config options for the networks you want to connect to
+// @mysten/sui v2: uses `url` + `network`
 const { networkConfig } = createNetworkConfig({
-  localnet: { url: getFullnodeUrl('localnet') },
-  devnet: { url: getFullnodeUrl('devnet') },
-  testnet: { url: getFullnodeUrl('testnet') },
-  mainnet: { url: getFullnodeUrl('mainnet') },
+  testnet: { url: 'https://fullnode.testnet.sui.io:443', network: 'testnet' },
+  mainnet: { url: 'https://fullnode.mainnet.sui.io:443', network: 'mainnet' },
 });
 
 const queryClient = new QueryClient();

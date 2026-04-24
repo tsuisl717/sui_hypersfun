@@ -2,7 +2,7 @@
 // Wraps @mysten/deepbook-v3 for use with HypersFun vaults
 
 import { DeepBookClient } from '@mysten/deepbook-v3';
-import { SuiClient } from '@mysten/sui/client';
+import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { Transaction } from '@mysten/sui/transactions';
 
 // ============ Types ============
@@ -26,7 +26,7 @@ export interface MarginTradeParams {
 let _deepbookClient: DeepBookClient | null = null;
 
 export function getDeepBookClient(
-  suiClient: SuiClient,
+  suiClient: SuiJsonRpcClient,
   address: string,
   network: 'testnet' | 'mainnet' = 'testnet',
   marginManagers?: Record<string, { address: string; poolKey: string }>,

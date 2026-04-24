@@ -2,7 +2,7 @@
 // Uses @mysten/seal for time-lock encryption of Leader trade intents
 
 import { SealClient } from '@mysten/seal';
-import { SuiClient } from '@mysten/sui/client';
+import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { PACKAGE_ID, MODULES } from '@/lib/contracts/config';
@@ -37,7 +37,7 @@ export interface SealedIntent {
 
 let _sealClient: SealClient | null = null;
 
-export function getSealClient(suiClient: SuiClient): SealClient {
+export function getSealClient(suiClient: SuiJsonRpcClient): SealClient {
   if (!_sealClient) {
     _sealClient = new SealClient({
       suiClient,
@@ -52,7 +52,7 @@ export function getSealClient(suiClient: SuiClient): SealClient {
 // ============ Encrypt Trade Intent ============
 
 export async function encryptTradeIntent(
-  suiClient: SuiClient,
+  suiClient: SuiJsonRpcClient,
   intent: TradeIntent,
   delayMs: number = 30_000, // 30 second default delay
 ): Promise<SealedIntent> {

@@ -1,6 +1,6 @@
 'use client';
 
-import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
+import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { PACKAGE_ID, MODULES, OBJECTS, formatUsdc } from './contracts/config';
 
 export interface VaultPosition {
@@ -38,7 +38,7 @@ export interface VaultInfo {
 export type VaultUpdateCallback = (coreAddress: string, updates: Partial<VaultInfo>) => void;
 
 // Create SUI client
-const client = new SuiClient({ url: getFullnodeUrl('testnet') });
+const client = new SuiJsonRpcClient({ url: 'https://fullnode.testnet.sui.io:443', network: 'testnet' });
 
 // Cache for vault data
 const VAULTS_CACHE_KEY = 'sui_vaults_cache';

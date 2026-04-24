@@ -65,12 +65,13 @@ export default function Header({ searchQuery, onSearchChange, onLogoClick }: Hea
         {/* Desktop Menu */}
         <div className="hidden md:flex items-center gap-4">
           <div className="hidden lg:flex items-center border border-border h-9 rounded-sm overflow-hidden">
-            {(['VAULTS', 'DOCS', 'PROFILE'] as const).map(link => (
+            {(['VAULTS', 'FAUCET', 'DOCS', 'PROFILE'] as const).map(link => (
               <button
                 key={link}
                 className="px-5 h-full cursor-pointer text-xs font-bold text-gray-500 hover:text-white hover:bg-white/5 transition-all uppercase tracking-widest"
                 onClick={() => {
                   if (link === 'VAULTS') router.push('/');
+                  else if (link === 'FAUCET') router.push('/faucet');
                   else if (link === 'DOCS') window.open('https://docs.sui.io/', '_blank');
                   else if (link === 'PROFILE') router.push('/profile');
                 }}
@@ -114,12 +115,13 @@ export default function Header({ searchQuery, onSearchChange, onLogoClick }: Hea
           <div className="p-4 space-y-3">
             {/* Navigation Links */}
             <div className="flex flex-col gap-2">
-              {(['VAULTS', 'DOCS', 'PROFILE'] as const).map(link => (
+              {(['VAULTS', 'FAUCET', 'DOCS', 'PROFILE'] as const).map(link => (
                 <button
                   key={link}
                   className="w-full py-2 px-3 text-left text-sm font-bold text-gray-400 hover:text-white hover:bg-white/5 transition-all uppercase tracking-widest"
                   onClick={() => {
                     if (link === 'VAULTS') router.push('/');
+                    else if (link === 'FAUCET') router.push('/faucet');
                     else if (link === 'DOCS') window.open('https://docs.sui.io/', '_blank');
                     else if (link === 'PROFILE') router.push('/profile');
                     setShowMobileMenu(false);
