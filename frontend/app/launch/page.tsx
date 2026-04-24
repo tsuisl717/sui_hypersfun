@@ -7,7 +7,7 @@ import { ArrowLeft, Rocket } from 'lucide-react';
 import Link from 'next/link';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
-import { PACKAGE_ID, MODULES, OBJECTS } from '@/lib/contracts/config';
+import { PACKAGE_ID, MODULES, OBJECTS, USDC } from '@/lib/contracts/config';
 
 export default function LaunchPage() {
   const account = useCurrentAccount();
@@ -42,13 +42,14 @@ export default function LaunchPage() {
     try {
       const tx = new Transaction();
 
-      // Call create_vault on factory
+      // Call create_vault on sui_vault module
       tx.moveCall({
-        target: `${PACKAGE_ID}::${MODULES.FACTORY}::create_vault`,
+        target: `${PACKAGE_ID}::${MODULES.VAULT}::create_vault`,
+        typeArguments: [USDC.TYPE],
         arguments: [
           tx.object(OBJECTS.FACTORY),
-          tx.pure.string(name),
-          tx.pure.string(symbol),
+          tx.pure.vector('u8', Array.from(new TextEncoder().encode(name))),
+          tx.pure.vector('u8', Array.from(new TextEncoder().encode(symbol))),
           tx.pure.u64(parseInt(performanceFee) * 100), // Convert to BPS
           tx.object('0x6'), // Clock
         ],
