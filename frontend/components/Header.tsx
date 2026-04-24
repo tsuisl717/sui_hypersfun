@@ -6,6 +6,7 @@ import { ConnectButton, useCurrentAccount } from '@mysten/dapp-kit';
 import { useRouter } from 'next/navigation';
 import Logo from './Logo';
 import ZkLoginButton from './ZkLoginButton';
+import NetworkSwitcher from './NetworkSwitcher';
 import { formatAddress } from '@/lib/contracts/config';
 
 interface HeaderProps {
@@ -90,6 +91,9 @@ export default function Header({ searchQuery, onSearchChange, onLogoClick }: Hea
             <span className="lg:hidden">CREATE</span>
           </button>
 
+          {/* Network Switcher */}
+          <NetworkSwitcher />
+
           {/* zkLogin (Google) */}
           <ZkLoginButton />
 
@@ -143,6 +147,11 @@ export default function Header({ searchQuery, onSearchChange, onLogoClick }: Hea
               <Plus size={16} strokeWidth={3} />
               Create Vault
             </button>
+
+            {/* Network Switcher - Mobile */}
+            <div className="w-full flex justify-center">
+              <NetworkSwitcher />
+            </div>
 
             {/* zkLogin (Google) - Mobile */}
             <div className="w-full">

@@ -5,7 +5,16 @@
 
 export type NetworkType = 'testnet' | 'mainnet';
 
-export const NETWORK: NetworkType = (process.env.NEXT_PUBLIC_SUI_NETWORK as NetworkType) || 'mainnet';
+function getNetwork(): NetworkType {
+  // Client-side: check localStorage first (set by NetworkSwitcher)
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('sui_network') as NetworkType;
+    if (stored === 'testnet' || stored === 'mainnet') return stored;
+  }
+  return (process.env.NEXT_PUBLIC_SUI_NETWORK as NetworkType) || 'mainnet';
+}
+
+export const NETWORK: NetworkType = getNetwork();
 
 // ============ Per-Network Config ============
 
