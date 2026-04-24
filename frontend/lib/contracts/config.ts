@@ -1,7 +1,7 @@
 // SUI HypersFun Contract Configuration
 
-// Package ID from deployment (testnet V4)
-export const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || "0x342c90eee2a578c7a3e7aca6b2be6163b349870d8e0240a2b54f1bf3bb9ba23f";
+// Package ID from deployment (testnet V6 — with margin, seal, test_usdc)
+export const PACKAGE_ID = process.env.NEXT_PUBLIC_PACKAGE_ID || "0xd2e920ef17bde30f2a3ec7a89c3ab26d7fa8c9010074776e1d2c0e0d9fdf6c05";
 
 // Module names
 export const MODULES = {
@@ -17,12 +17,14 @@ export const MODULES = {
 
 // Object IDs
 export const OBJECTS = {
-  // Factory shared object
-  FACTORY: process.env.NEXT_PUBLIC_FACTORY_ID || "0x4ed7a7caa3517e7c3abb9044b749ee980dfc2e117a0a4a21c458cdfa442c13a9",
-  // Admin cap - owned by deployer
-  ADMIN_CAP: process.env.NEXT_PUBLIC_ADMIN_CAP_ID || "0x1d6b8d86f78df8ddd43510ee198f500d8591b61b76bdae030ff63e77886fbc31",
-  // Test vault for development
-  TEST_VAULT: process.env.NEXT_PUBLIC_TEST_VAULT_ID || "0xd94b15b21ba57e8bfeb54d6a302b4db865a07c9c8b90c05b64416c5d8c6ab042",
+  // Factory shared object (V6)
+  FACTORY: process.env.NEXT_PUBLIC_FACTORY_ID || "0x04ad2333d82bf89abf608a485cee7c2cfa734b3502bac53938a78af5cb450c46",
+  // Admin cap - owned by deployer (V6)
+  ADMIN_CAP: process.env.NEXT_PUBLIC_ADMIN_CAP_ID || "0x2ba0a5e3c9f2b767072ca90bffa1b888bf3e64becbea243743d013f23cec67c8",
+  // Test vault (V6 — tUSDC type)
+  TEST_VAULT: process.env.NEXT_PUBLIC_TEST_VAULT_ID || "0x352ea52814f0c2448e4676bf41b37ff9f9dfaaf1cd75712c6387c066b7bdace8",
+  // tUSDC TreasuryCap (shared, anyone can mint)
+  TUSDC_TREASURY: "0xaaf7c19379f463427a9572c3536b2be002e8067b8505cdb5f041a91441974cbd",
 };
 
 // SUI Network Configuration
@@ -42,10 +44,11 @@ export const SUI_CONFIG = {
 };
 
 // Base currency on SUI
-// For testnet: set NEXT_PUBLIC_USDC_TYPE to DBUSDC for DeepBook compatibility
-// DBUSDC: 0x22be4cade64bf2d02412c7e8d0e8beea2f78828b948118d46735315409371a3c::dbusdc::DBUSDC
+// For testnet: uses tUSDC (self-mintable test token) by default
+// For DeepBook trading: set NEXT_PUBLIC_USDC_TYPE to DBUSDC
+// For mainnet: set to native USDC 0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC
 export const USDC = {
-  TYPE: process.env.NEXT_PUBLIC_USDC_TYPE || "0xa1ec7fc00a6f40db9693ad1415d0c193ad3906494428cf252621037bd7117e29::usdc::USDC",
+  TYPE: process.env.NEXT_PUBLIC_USDC_TYPE || "0xd2e920ef17bde30f2a3ec7a89c3ab26d7fa8c9010074776e1d2c0e0d9fdf6c05::test_usdc::TEST_USDC",
   DECIMALS: 6,
 };
 
