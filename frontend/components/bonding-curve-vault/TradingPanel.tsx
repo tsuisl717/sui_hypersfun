@@ -8,6 +8,7 @@ interface TradingPanelProps {
   vault: VaultInfo;
   isConnected: boolean;
   userUsdcBalance?: string;
+  userShareBalance?: number;
   isPending: boolean;
   txStatus: string | null;
   onBuy: (amount: string) => void;
@@ -18,6 +19,7 @@ export default function TradingPanel({
   vault,
   isConnected,
   userUsdcBalance,
+  userShareBalance = 0,
   isPending,
   txStatus,
   onBuy,
@@ -148,6 +150,23 @@ export default function TradingPanel({
                 placeholder="0.00"
                 className="w-full bg-white/5 border border-white/10 px-4 py-3 text-white placeholder:text-gray-600 focus:border-primary/50 outline-none transition-colors text-lg font-mono"
               />
+              {/* Percentage buttons */}
+              <div className="grid grid-cols-4 gap-1 mt-2">
+                {[25, 50, 75, 100].map(pct => {
+                  const maxVal = activeTab === 'buy'
+                    ? parseFloat(userUsdcBalance || '0')
+                    : userShareBalance / 1_000_000; // shares have 6 decimals
+                  return (
+                    <button
+                      key={pct}
+                      onClick={() => setAmount((maxVal * pct / 100).toFixed(2))}
+                      className="py-1.5 text-xs font-bold border border-white/10 text-gray-400 hover:text-white hover:border-white/30 transition-colors"
+                    >
+                      {pct}%
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Estimated Output */}

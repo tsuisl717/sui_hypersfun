@@ -374,6 +374,104 @@ module sui_hypersfun::sui_margin {
         });
     }
 
+    /// Reset allocation tracking (Leader only)
+    /// Use when close position didn't properly clear allocation
+    public fun reset_allocation<USDC>(
+        vault: &SuiVault<USDC>,
+        leader_cap: &SuiLeaderCap,
+        margin_account: &mut MarginAccount,
+    ) {
+        let vault_id = object::id(vault);
+        assert!(sui_vault::leader_cap_vault_id(leader_cap) == vault_id, E_NOT_AUTHORIZED);
+        assert!(margin_account.vault_id == vault_id, E_NOT_AUTHORIZED);
+        margin_account.total_allocated = 0;
+    }
+
+    // ============ Close Position (Hot Potato) ============
+    // Ensures all funds return to vault when closing margin position.
+    // Leader cannot steal funds — CloseObligation MUST be consumed.
+
+    /// Hot potato: created by initiate_close, consumed by complete_close.
+    /// Cannot be dropped, stored, or transferred.
+    public struct CloseObligation {
+        vault_id: ID,
+        /// Minimum USDC that must be returned to vault
+        min_return: u64,
+    }
+
+    /// Start closing a margin position.
+    /// Returns a CloseObligation that MUST be consumed by complete_close.
+    /// Leader can then withdraw from MarginManager and swap in the PTB.
+    public fun initiate_margin_close<USDC>(
+        vault: &SuiVault<USDC>,
+        leader_cap: &SuiLeaderCap,
+        margin_account: &MarginAccount,
+        min_return: u64,
+    ): CloseObligation {
+        let vault_id = object::id(vault);
+        assert!(sui_vault::leader_cap_vault_id(leader_cap) == vault_id, E_NOT_AUTHORIZED);
+        assert!(margin_account.vault_id == vault_id, E_NOT_AUTHORIZED);
+
+        CloseObligation {
+            vault_id,
+            min_return,
+        }
+    }
+
+    /// Complete closing a margin position.
+    /// ALL USDC from the margin position must be passed in.
+    /// USDC goes directly to vault reserve. Obligation is consumed.
+    public fun complete_margin_close<USDC>(
+        obligation: CloseObligation,
+        vault: &mut SuiVault<USDC>,
+        margin_account: &mut MarginAccount,
+        coin: Coin<USDC>,
+        original_allocated: u64,
+        clock: &Clock,
+    ) {
+        let CloseObligation { vault_id, min_return } = obligation;
+        assert!(vault_id == object::id(vault), E_NOT_AUTHORIZED);
+        assert!(vault_id == margin_account.vault_id, E_NOT_AUTHORIZED);
+
+        let return_amount = coin::value(&coin);
+        assert!(return_amount >= min_return, E_INVALID_AMOUNT);
+
+        // Track P&L
+        if (return_amount >= original_allocated) {
+            let profit = return_amount - original_allocated;
+            margin_account.cumulative_profit = margin_account.cumulative_profit + profit;
+        } else {
+            let loss = original_allocated - return_amount;
+            margin_account.cumulative_loss = margin_account.cumulative_loss + loss;
+        };
+
+        // Update allocation
+        if (margin_account.total_allocated >= original_allocated) {
+            margin_account.total_allocated = margin_account.total_allocated - original_allocated;
+        } else {
+            margin_account.total_allocated = 0;
+        };
+
+        margin_account.trade_count = margin_account.trade_count + 1;
+
+        let (is_profit, pnl_amount) = if (return_amount >= original_allocated) {
+            (true, return_amount - original_allocated)
+        } else {
+            (false, original_allocated - return_amount)
+        };
+
+        event::emit(MarginFundsReturned {
+            vault_id,
+            amount: return_amount,
+            total_allocated: margin_account.total_allocated,
+            pnl_amount,
+            is_profit,
+        });
+
+        // Deposit ALL USDC to vault
+        sui_vault::deposit_usdc_from_trading(vault, coin);
+    }
+
     // ============ View Functions ============
 
     /// Get margin account vault ID

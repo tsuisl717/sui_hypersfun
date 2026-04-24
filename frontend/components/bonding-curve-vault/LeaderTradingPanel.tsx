@@ -326,82 +326,48 @@ export default function LeaderTradingPanel({
 
       if (isBuy) {
         // BUY: USDC → Base Asset
-        // Step 2: consume authorization → extract USDC from vault
-        const [usdcCoin] = tx.moveCall({
+        const [usdcCoin, obligation] = tx.moveCall({
           target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::consume_swap_for_buy`,
           typeArguments: [USDC.TYPE],
-          arguments: [
-            swapAuth,
-            tx.object(vaultId),
-            tx.object('0x6'),
-          ],
+          arguments: [swapAuth, tx.object(vaultId), tx.object('0x6')],
         });
 
-        // Step 3: DeepBook swap USDC → Base Asset
         const [baseOut, quoteOut, deepOut] = tx.moveCall({
           target: `${DEEPBOOK.packageId}::pool::swap_exact_quote_for_base`,
           typeArguments: [pair.baseType, pair.quoteType],
-          arguments: [
-            tx.object(pair.poolId),
-            usdcCoin,
-            deepCoin,
-            tx.pure.u64(0), // min_output
-            tx.object('0x6'),
-          ],
+          arguments: [tx.object(pair.poolId), usdcCoin, deepCoin, tx.pure.u64(0), tx.object('0x6')],
         });
 
-        // Step 4: deposit base asset to AssetVault
+        // Repay obligation — base asset to AssetVault (hot potato consumed)
         tx.moveCall({
-          target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::deposit_swap_output`,
+          target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::repay_obligation_with_base`,
           typeArguments: [pair.baseType],
-          arguments: [
-            tx.object(assetVault.id),
-            baseOut,
-            tx.pure.u64(0),
-          ],
+          arguments: [obligation, tx.object(assetVault.id), baseOut, tx.pure.u64(0)],
         });
 
-        // Step 5: return leftover quote + DEEP to sender
         tx.transferObjects([quoteOut, deepOut], account.address);
       } else {
         // SELL: Base Asset → USDC
-        // Step 2: consume authorization → extract base asset from AssetVault
-        const [assetCoin] = tx.moveCall({
+        const [assetCoin, obligation] = tx.moveCall({
           target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::consume_swap_for_sell`,
           typeArguments: [pair.baseType],
-          arguments: [
-            swapAuth,
-            tx.object(assetVault.id),
-            tx.pure.u64(inputAmount),
-            tx.object('0x6'),
-          ],
+          arguments: [swapAuth, tx.object(assetVault.id), tx.pure.u64(inputAmount), tx.object('0x6')],
         });
 
-        // Step 3: DeepBook swap Base Asset → USDC
         const [baseOut, quoteOut, deepOut] = tx.moveCall({
           target: `${DEEPBOOK.packageId}::pool::swap_exact_base_for_quote`,
           typeArguments: [pair.baseType, pair.quoteType],
-          arguments: [
-            tx.object(pair.poolId),
-            assetCoin,
-            deepCoin,
-            tx.pure.u64(0), // min_output
-            tx.object('0x6'),
-          ],
+          arguments: [tx.object(pair.poolId), assetCoin, deepCoin, tx.pure.u64(0), tx.object('0x6')],
         });
 
-        // Step 4: deposit USDC back to vault
+        // Repay obligation — USDC back to vault (hot potato consumed)
         tx.moveCall({
-          target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::deposit_usdc_from_sell`,
+          target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::repay_obligation_with_usdc`,
           typeArguments: [USDC.TYPE],
-          arguments: [
-            tx.object(vaultId),
-            quoteOut,
-            tx.pure.u64(0),
-          ],
+          arguments: [obligation, tx.object(vaultId), quoteOut, tx.pure.u64(0)],
         });
 
-        // Step 5: return leftover base + DEEP to sender
+        // Return leftover base + DEEP to sender
         tx.transferObjects([baseOut, deepOut], account.address);
       }
 

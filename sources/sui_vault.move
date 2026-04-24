@@ -441,8 +441,11 @@ module sui_hypersfun::sui_vault {
             token_amount,
         );
 
-        // Check liquidity and payout
-        let available_usdc = balance::value(&vault.usdc_reserve) - vault.total_ps_usdc;
+        // Check liquidity and payout (safe subtraction)
+        let reserve_bal = balance::value(&vault.usdc_reserve);
+        let available_usdc = if (reserve_bal > vault.total_ps_usdc) {
+            reserve_bal - vault.total_ps_usdc
+        } else { 0 };
 
         if (net_usdc <= available_usdc) {
             // Immediate payout
@@ -596,8 +599,11 @@ module sui_hypersfun::sui_vault {
             token_amount,
         );
 
-        // Check liquidity and payout
-        let available_usdc = balance::value(&vault.usdc_reserve) - vault.total_ps_usdc;
+        // Check liquidity and payout (safe subtraction)
+        let reserve_bal = balance::value(&vault.usdc_reserve);
+        let available_usdc = if (reserve_bal > vault.total_ps_usdc) {
+            reserve_bal - vault.total_ps_usdc
+        } else { 0 };
 
         if (net_usdc <= available_usdc) {
             // Immediate payout
@@ -725,7 +731,9 @@ module sui_hypersfun::sui_vault {
 
     /// Get total assets (USDC reserve in internal format)
     fun get_total_assets<USDC>(vault: &SuiVault<USDC>): u64 {
-        sui_math::usdc_to_internal(balance::value(&vault.usdc_reserve))
+        let reserve = balance::value(&vault.usdc_reserve);
+        let external = get_external_assets_value(vault);
+        sui_math::usdc_to_internal(reserve + external)
     }
 
     /// Calculate NAV using factory tiers
@@ -1020,6 +1028,57 @@ module sui_hypersfun::sui_vault {
         if (max_buy_usdc > min_deposit) { max_buy_usdc } else { min_deposit }
     }
 
+    /// Get buy price: how many tokens you get for a given USDC amount
+    /// Returns (tokens_out, price_per_token) both in 6-decimal precision
+    public fun get_buy_quote<USDC>(
+        vault: &SuiVault<USDC>,
+        factory: &SuiFactory,
+        usdc_amount: u64,
+    ): (u64, u64) {
+        let total_assets = get_total_assets(vault);
+        let nav = calculate_nav_internal(vault, factory, total_assets);
+        let (eff_virtual_base, eff_virtual_tokens) = get_effective_virtuals(vault, factory, total_assets);
+        let virtual_base_usdc = sui_math::calculate_virtual_base_usdc(eff_virtual_base, nav);
+        let usdc_internal = sui_math::usdc_to_internal(usdc_amount);
+        let tokens_out = sui_math::calculate_tokens_out(virtual_base_usdc, eff_virtual_tokens, usdc_internal);
+        // Price = usdc_amount / tokens_out (6 decimal)
+        let price = if (tokens_out > 0) {
+            sui_math::mul_div(usdc_amount, 1_000_000, tokens_out)
+        } else { 0 };
+        (tokens_out, price)
+    }
+
+    /// Get sell price: how much USDC you get for selling a given number of tokens
+    /// Returns (usdc_out_gross, usdc_out_net, exit_fee_bps)
+    public fun get_sell_quote<USDC>(
+        vault: &SuiVault<USDC>,
+        factory: &SuiFactory,
+        token_amount: u64,
+        seller: address,
+        current_time: u64,
+    ): (u64, u64, u64) {
+        let total_assets = get_total_assets(vault);
+        let nav = calculate_nav_internal(vault, factory, total_assets);
+        let smoothed_nav = get_smoothed_nav_internal(vault, nav, current_time);
+        let (eff_virtual_base, eff_virtual_tokens) = get_effective_virtuals(vault, factory, total_assets);
+        let virtual_base_usdc = sui_math::calculate_virtual_base_usdc(eff_virtual_base, smoothed_nav);
+        let gross_usdc_internal = sui_math::calculate_usdc_out(virtual_base_usdc, eff_virtual_tokens, token_amount);
+        let gross_usdc = sui_math::internal_to_usdc(gross_usdc_internal);
+        let exit_fee_bps = get_exit_fee_bps(vault, factory, seller, current_time);
+        let exit_fee = sui_math::mul_div(gross_usdc, exit_fee_bps, sui_types::bps());
+        let settings = sui_factory::settings(factory);
+        let trading_fee_bps = sui_types::settings_trading_fee_bps(settings);
+        let trading_fee = sui_math::mul_div(gross_usdc, trading_fee_bps, sui_types::bps());
+        let net_usdc = gross_usdc - exit_fee - trading_fee;
+        (gross_usdc, net_usdc, exit_fee_bps)
+    }
+
+    /// Get current NAV per token (view function)
+    public fun get_nav<USDC>(vault: &SuiVault<USDC>, factory: &SuiFactory): u64 {
+        let total_assets = get_total_assets(vault);
+        calculate_nav_internal(vault, factory, total_assets)
+    }
+
     /// Get user's token balance in entry record
     public fun user_entry_tokens<USDC>(vault: &SuiVault<USDC>, user: address): u64 {
         if (table::contains(&vault.entry_records, user)) {
@@ -1070,6 +1129,21 @@ module sui_hypersfun::sui_vault {
         vault.paused = true;
     }
 
+    /// Emergency withdraw USDC (factory admin only)
+    /// For development/emergency use - admin can extract USDC from vault
+    public fun emergency_withdraw<USDC>(
+        _admin_cap: &SuiAdminCap,
+        vault: &mut SuiVault<USDC>,
+        amount: u64,
+        recipient: address,
+        ctx: &mut TxContext,
+    ) {
+        assert!(balance::value(&vault.usdc_reserve) >= amount, E_INSUFFICIENT_LIQUIDITY);
+        let withdrawn = balance::split(&mut vault.usdc_reserve, amount);
+        let coin = coin::from_balance(withdrawn, ctx);
+        transfer::public_transfer(coin, recipient);
+    }
+
     /// Set TWAP half-life (factory admin only)
     public fun set_twap_half_life<USDC>(
         _admin_cap: &SuiAdminCap,
@@ -1092,6 +1166,11 @@ module sui_hypersfun::sui_vault {
         assert!(balance::value(&vault.usdc_reserve) >= amount, E_INSUFFICIENT_LIQUIDITY);
 
         let withdrawn = balance::split(&mut vault.usdc_reserve, amount);
+
+        // Track external assets: add extracted amount
+        let current_ext = get_external_assets_value(vault);
+        set_external_assets_value(vault, current_ext + amount);
+
         coin::from_balance(withdrawn, ctx)
     }
 
@@ -1100,8 +1179,17 @@ module sui_hypersfun::sui_vault {
         vault: &mut SuiVault<USDC>,
         coin: Coin<USDC>,
     ) {
+        let amount = coin::value(&coin);
         let coin_balance = coin::into_balance(coin);
         balance::join(&mut vault.usdc_reserve, coin_balance);
+
+        // Track external assets: subtract returned amount
+        let current_ext = get_external_assets_value(vault);
+        if (current_ext >= amount) {
+            set_external_assets_value(vault, current_ext - amount);
+        } else {
+            set_external_assets_value(vault, 0);
+        };
     }
 
     /// Get available USDC for trading (excluding pending sells)
@@ -1109,6 +1197,53 @@ module sui_hypersfun::sui_vault {
         let total = balance::value(&vault.usdc_reserve);
         if (total > vault.total_ps_usdc) {
             total - vault.total_ps_usdc
+        } else {
+            0
+        }
+    }
+
+    // ============ External Assets Tracking (via dynamic field) ============
+    // Tracks the USDC value of assets held outside the vault (margin, spot swaps)
+    // Used to adjust NAV calculation and limit sell amounts
+
+    /// Key for external assets dynamic field
+    public struct ExternalAssetsKey has copy, drop, store {}
+
+    /// Get the value of external assets (USDC equivalent)
+    public fun get_external_assets_value<USDC>(vault: &SuiVault<USDC>): u64 {
+        if (sui::dynamic_field::exists_(&vault.id, ExternalAssetsKey {})) {
+            *sui::dynamic_field::borrow(&vault.id, ExternalAssetsKey {})
+        } else {
+            0
+        }
+    }
+
+    /// Set external assets value (package-internal)
+    fun set_external_assets_value<USDC>(vault: &mut SuiVault<USDC>, value: u64) {
+        if (sui::dynamic_field::exists_(&vault.id, ExternalAssetsKey {})) {
+            *sui::dynamic_field::borrow_mut(&mut vault.id, ExternalAssetsKey {}) = value;
+        } else {
+            sui::dynamic_field::add(&mut vault.id, ExternalAssetsKey {}, value);
+        };
+    }
+
+    /// Reset external assets value (Leader only - for fixing stale tracking)
+    public fun reset_external_assets<USDC>(
+        vault: &mut SuiVault<USDC>,
+        leader_cap: &SuiLeaderCap,
+        new_value: u64,
+    ) {
+        assert!(leader_cap_vault_id(leader_cap) == object::id(vault), E_NOT_AUTHORIZED);
+        set_external_assets_value(vault, new_value);
+    }
+
+    /// Get max sellable tokens based on available reserve
+    /// When external assets exist, limit sell to what the reserve can actually pay
+    public fun max_sellable_usdc<USDC>(vault: &SuiVault<USDC>): u64 {
+        let reserve = balance::value(&vault.usdc_reserve);
+        let pending = vault.total_ps_usdc;
+        if (reserve > pending) {
+            reserve - pending
         } else {
             0
         }

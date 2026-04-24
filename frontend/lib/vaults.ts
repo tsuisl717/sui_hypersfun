@@ -1,7 +1,7 @@
 'use client';
 
 import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
-import { PACKAGE_ID, MODULES, OBJECTS, formatUsdc } from './contracts/config';
+import { PACKAGE_ID, MODULES, OBJECTS, USDC, NETWORK, SUI_CONFIG, formatUsdc } from './contracts/config';
 
 export interface VaultPosition {
   coin: string;
@@ -37,11 +37,15 @@ export interface VaultInfo {
 
 export type VaultUpdateCallback = (coreAddress: string, updates: Partial<VaultInfo>) => void;
 
-// Create SUI client
-const client = new SuiJsonRpcClient({ url: 'https://fullnode.testnet.sui.io:443', network: 'testnet' });
+// Create SUI client lazily to ensure correct network is used
+function getClient() {
+  // Re-read network each time to pick up localStorage changes
+  const net = (typeof window !== 'undefined' && localStorage.getItem('sui_network') as 'testnet' | 'mainnet') || NETWORK;
+  return new SuiJsonRpcClient({ url: SUI_CONFIG[net].rpcUrl, network: net });
+}
 
-// Cache for vault data
-const VAULTS_CACHE_KEY = 'sui_vaults_cache';
+// Cache for vault data (keyed by network to avoid cross-network stale data)
+const VAULTS_CACHE_KEY = `sui_vaults_cache_${NETWORK}`;
 const VAULTS_CACHE_TTL = 30 * 1000; // 30 seconds
 
 interface VaultsCache {
@@ -105,11 +109,14 @@ export async function loadVaults(
   }
 
   try {
-    console.log('[Vaults] Loading from factory:', OBJECTS.FACTORY);
+    const net = (typeof window !== 'undefined' && localStorage.getItem('sui_network')) || NETWORK;
+    const { ALL_NETWORKS } = await import('./contracts/config');
+    const factoryId = net === 'mainnet' ? ALL_NETWORKS.mainnet.factoryId : ALL_NETWORKS.testnet.factoryId;
+    console.log('[Vaults] Network:', net, '| Factory:', factoryId);
 
-    // Get factory object
-    const factoryObj = await client.getObject({
-      id: OBJECTS.FACTORY,
+    // Get factory object (use dynamically resolved factory ID)
+    const factoryObj = await getClient().getObject({
+      id: factoryId,
       options: { showContent: true },
     });
 
@@ -132,7 +139,7 @@ export async function loadVaults(
     console.log('[Factory] Vaults table ID:', vaultsTableId);
 
     // Get all dynamic fields (vault entries)
-    const dynamicFields = await client.getDynamicFields({
+    const dynamicFields = await getClient().getDynamicFields({
       parentId: vaultsTableId,
     });
 
@@ -148,7 +155,7 @@ export async function loadVaults(
         const vaultId = (field.name as { value: string }).value;
 
         // Get the actual vault object
-        const vaultObj = await client.getObject({
+        const vaultObj = await getClient().getObject({
           id: vaultId,
           options: { showContent: true },
         });
@@ -237,7 +244,8 @@ function parseVaultObject(id: string, fields: Record<string, unknown>): VaultInf
  */
 export async function loadVaultByAddress(vaultId: string): Promise<VaultInfo | null> {
   try {
-    const vaultObj = await client.getObject({
+    const c = getClient();
+    const vaultObj = await c.getObject({
       id: vaultId,
       options: { showContent: true },
     });
@@ -247,7 +255,63 @@ export async function loadVaultByAddress(vaultId: string): Promise<VaultInfo | n
     }
 
     const fields = vaultObj.data.content.fields as Record<string, unknown>;
-    return parseVaultObject(vaultId, fields);
+    const vault = parseVaultObject(vaultId, fields);
+
+    // Query on-chain NAV and external_assets via devInspect for accurate pricing
+    try {
+      const { Transaction } = await import('@mysten/sui/transactions');
+      const { ALL_NETWORKS } = await import('./contracts/config');
+      const net = (typeof window !== 'undefined' && localStorage.getItem('sui_network') as 'testnet' | 'mainnet') || NETWORK;
+      const factoryId = net === 'mainnet' ? ALL_NETWORKS.mainnet.factoryId : ALL_NETWORKS.testnet.factoryId;
+
+      const tx = new Transaction();
+      // get_nav returns bonding curve NAV
+      tx.moveCall({
+        target: `${PACKAGE_ID}::${MODULES.VAULT}::get_nav`,
+        typeArguments: [USDC.TYPE],
+        arguments: [tx.object(vaultId), tx.object(factoryId)],
+      });
+      // get_external_assets_value
+      tx.moveCall({
+        target: `${PACKAGE_ID}::${MODULES.VAULT}::get_external_assets_value`,
+        typeArguments: [USDC.TYPE],
+        arguments: [tx.object(vaultId)],
+      });
+
+      const result = await c.devInspectTransactionBlock({
+        transactionBlock: tx,
+        sender: '0x' + '0'.repeat(64),
+      });
+
+      if (result.results) {
+        const parseU64 = (r: { returnValues?: Array<[number[], string]> }) => {
+          const rv = r?.returnValues?.[0];
+          if (!rv) return 0;
+          return Number(BigInt('0x' + [...rv[0]].map((b: number) => b.toString(16).padStart(2, '0')).reverse().join('')));
+        };
+
+        const onChainNav = parseU64(result.results[0]); // 6-decimal internal precision
+        const extVal = parseU64(result.results[1]); // raw USDC amount
+
+        // NAV from bonding curve (internal precision → human)
+        if (onChainNav > 0) {
+          const navStr = (onChainNav / 1_000_000).toFixed(6);
+          vault.nav = navStr;
+          vault.buyPrice = navStr;
+          vault.sellPrice = navStr;
+        }
+
+        // TVL = reserve + external assets
+        if (extVal > 0) {
+          const reserve = parseFloat(vault.tvl.replace(/,/g, '')) * 1_000_000;
+          vault.tvl = formatUsdc(reserve + extVal);
+        }
+      }
+    } catch {
+      // devInspect failed, use parsed values
+    }
+
+    return vault;
   } catch (error) {
     console.error('Error fetching vault:', error);
     return null;

@@ -63,9 +63,9 @@ const NETWORK_CONFIG = {
     ],
   },
   mainnet: {
-    packageId: '0x60636ee15efcdd7ec07fe009d0391ff96ae87b56cf77c08b24f6d6f00f463fdb',
-    factoryId: '0x6d294bf8b1af74ef5b993ea8663898ffb59411ec2a3963842a33f9c344539df3',
-    adminCapId: '0xd48c37e08610b6ccf6bd29bd9e7821aa1541cebc1fd629fc39e8d26df9eded9f',
+    packageId: '0x724e702f7fea10f55f0136f2b1c4e3ef8c2c9775e141bcc5d81b92d3bc913d0f',
+    factoryId: '0x9f2757e7b20c263b25bbfc1d9d48951a55710e1a722cb5399c7c003d71863e2a',
+    adminCapId: '0x4a216ecb20bef3040bbe40bc005d092c307e1783f6fc62d31a3b9dc37cddac0f',
     testVaultId: '',
     usdcType: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC',
     tusdcTreasury: '',
@@ -89,12 +89,13 @@ const NETWORK_CONFIG = {
       },
     },
     tradingPairs: [
+      // Major pairs
       {
         name: 'SUI/USDC', base: 'SUI', quote: 'USDC',
         baseType: '0x2::sui::SUI',
         quoteType: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC',
         baseDecimals: 9, quoteDecimals: 6, poolKey: 'SUI_USDC',
-        poolId: '0xe05dafb5133bcffb8d59f4e12465dc0e9faeef26b0c23571dbadf44c36a6f1f4',
+        poolId: '0xe05dafb5133bcffb8d59f4e12465dc0e9faeaa05e3e342a08fe135800e3e4407',
       },
       {
         name: 'DEEP/USDC', base: 'DEEP', quote: 'USDC',
@@ -108,7 +109,45 @@ const NETWORK_CONFIG = {
         baseType: '0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL',
         quoteType: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC',
         baseDecimals: 9, quoteDecimals: 6, poolKey: 'WAL_USDC',
-        poolId: '0x1764194e32339de2caae2e3eb1b2ccec599a2dfb1f54f498e92c2c5a5d746712',
+        poolId: '0x56a1c985c1f1123181b2de3e94e6a30d7b3ee05dc0b6e2a9a2d3ceee26e5fc31',
+      },
+      // BTC / ETH
+      {
+        name: 'XBTC/USDC', base: 'XBTC', quote: 'USDC',
+        baseType: '0x876a4b7bce8aeaef60464c11f4026903e9afacab79b9b142686158aa86560b50::xbtc::XBTC',
+        quoteType: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC',
+        baseDecimals: 8, quoteDecimals: 6, poolKey: 'XBTC_USDC',
+        poolId: '0x20b9a3ec7a02d4f344aa1ebc5774b7b0ccafa9a5d76230662fdc0300bb215307',
+      },
+      {
+        name: 'BETH/USDC', base: 'BETH', quote: 'USDC',
+        baseType: '0xd0e89b2af5e4910726fbcd8b8dd37bb79b29e5f83f7491bca830e94f7f226d29::eth::ETH',
+        quoteType: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC',
+        baseDecimals: 8, quoteDecimals: 6, poolKey: 'BETH_USDC',
+        poolId: '0x1109352b9112717bd2a7c3eb9a416fff1ba6951760f5bdd5424cf5e4e5b3e65c',
+      },
+      // Stablecoins
+      {
+        name: 'USDT/USDC', base: 'USDT', quote: 'USDC',
+        baseType: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT',
+        quoteType: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC',
+        baseDecimals: 6, quoteDecimals: 6, poolKey: 'USDT_USDC',
+        poolId: '0x4e2ca3988246e1d50b9bf209abb9c1cbfec65bd95afdacc620a36c67bdb8452f',
+      },
+      // Ecosystem tokens
+      {
+        name: 'NS/USDC', base: 'NS', quote: 'USDC',
+        baseType: '0x5145494a5f5100e645e4b0aa950fa6b68f614e8c59e17bc5ded3495123a79178::ns::NS',
+        quoteType: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC',
+        baseDecimals: 6, quoteDecimals: 6, poolKey: 'NS_USDC',
+        poolId: '0x0c0fdd4008740d81a8a7d4281322aee71a1b62c449eb5b142656753d89ebc060',
+      },
+      {
+        name: 'SEND/USDC', base: 'SEND', quote: 'USDC',
+        baseType: '0xb45fcfcc2cc07ce0702cc2d229621e046c906ef14d9b25e8e4d25f6e8763fef7::send::SEND',
+        quoteType: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC',
+        baseDecimals: 6, quoteDecimals: 6, poolKey: 'SEND_USDC',
+        poolId: '0x1fe7b99c28ded39774f37327b509d58e2be7fff94899c06d22b407496a6fa990',
       },
       {
         name: 'DEEP/SUI', base: 'DEEP', quote: 'SUI',

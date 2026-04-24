@@ -63,3 +63,5 @@ pids
 *.pid.lock
 /.openzeppelin
 NUL
+0xfde8*.key
+.claude/

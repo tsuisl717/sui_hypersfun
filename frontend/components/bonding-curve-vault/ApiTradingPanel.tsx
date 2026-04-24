@@ -293,8 +293,8 @@ export default function ApiTradingPanel({
       }
 
       if (isBuy) {
-        // consume → DeepBook swap → deposit to AssetVault
-        const [usdcCoin] = tx.moveCall({
+        // consume → DeepBook swap → repay obligation (deposit base to AssetVault)
+        const [usdcCoin, obligation] = tx.moveCall({
           target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::consume_swap_for_buy`,
           typeArguments: [USDC.TYPE],
           arguments: [swapAuth, tx.object(vaultId), tx.object('0x6')],
@@ -306,16 +306,17 @@ export default function ApiTradingPanel({
           arguments: [tx.object(pair.poolId), usdcCoin, deepCoinArg, tx.pure.u64(0), tx.object('0x6')],
         });
 
+        // Repay obligation — base asset goes back to AssetVault (hot potato consumed)
         tx.moveCall({
-          target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::deposit_swap_output`,
+          target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::repay_obligation_with_base`,
           typeArguments: [pair.baseType],
-          arguments: [tx.object(assetVault.assetVaultId), baseOut, tx.pure.u64(0)],
+          arguments: [obligation, tx.object(assetVault.assetVaultId), baseOut, tx.pure.u64(0)],
         });
 
         tx.transferObjects([quoteOut, deepOut], account.address);
       } else {
-        // consume → DeepBook swap → deposit USDC back
-        const [assetCoin] = tx.moveCall({
+        // consume → DeepBook swap → repay obligation (deposit USDC back to vault)
+        const [assetCoin, obligation] = tx.moveCall({
           target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::consume_swap_for_sell`,
           typeArguments: [pair.baseType],
           arguments: [swapAuth, tx.object(assetVault.assetVaultId), tx.pure.u64(inputAmount), tx.object('0x6')],
@@ -327,10 +328,11 @@ export default function ApiTradingPanel({
           arguments: [tx.object(pair.poolId), assetCoin, deepCoinArg, tx.pure.u64(0), tx.object('0x6')],
         });
 
+        // Repay obligation — USDC goes back to vault (hot potato consumed)
         tx.moveCall({
-          target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::deposit_usdc_from_sell`,
+          target: `${PACKAGE_ID}::${MODULES.DEEPBOOK_MOD}::repay_obligation_with_usdc`,
           typeArguments: [USDC.TYPE],
-          arguments: [tx.object(vaultId), quoteOut, tx.pure.u64(0)],
+          arguments: [obligation, tx.object(vaultId), quoteOut, tx.pure.u64(0)],
         });
 
         tx.transferObjects([baseOut, deepOut], account.address);

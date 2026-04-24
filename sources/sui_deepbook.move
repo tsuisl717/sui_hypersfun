@@ -59,6 +59,15 @@ module sui_hypersfun::sui_deepbook {
         used: bool,
     }
 
+    /// Hot potato obligation: created when USDC is extracted from vault.
+    /// MUST be consumed by repay_trading_obligation() which requires
+    /// depositing assets back to vault. Cannot be dropped or stored.
+    /// This prevents Leader from stealing vault funds.
+    public struct TradingObligation {
+        vault_id: ID,
+        amount_extracted: u64,
+    }
+
     // ============ Events ============
 
     public struct AssetVaultCreated has copy, drop {
@@ -175,13 +184,15 @@ module sui_hypersfun::sui_deepbook {
     }
 
     /// Consume swap authorization and extract USDC for DeepBook swap
-    /// Returns USDC coin to be used in DeepBook swap
+    /// Returns USDC coin AND a TradingObligation (hot potato).
+    /// The obligation MUST be consumed by repay_trading_obligation()
+    /// which requires depositing assets back to the vault.
     public fun consume_swap_for_buy<USDC>(
         authorization: SwapAuthorization,
         vault: &mut SuiVault<USDC>,
         clock: &Clock,
         ctx: &mut TxContext,
-    ): Coin<USDC> {
+    ): (Coin<USDC>, TradingObligation) {
         let SwapAuthorization {
             id,
             vault_id,
@@ -202,8 +213,10 @@ module sui_hypersfun::sui_deepbook {
 
         object::delete(id);
 
-        // Extract USDC from vault reserve
-        sui_vault::extract_usdc_for_trading(vault, input_amount, ctx)
+        let coin = sui_vault::extract_usdc_for_trading(vault, input_amount, ctx);
+        let obligation = TradingObligation { vault_id, amount_extracted: input_amount };
+
+        (coin, obligation)
     }
 
     /// Deposit the output asset after swap
@@ -228,13 +241,14 @@ module sui_hypersfun::sui_deepbook {
     }
 
     /// Consume swap authorization for selling base asset back to USDC
+    /// Returns asset coin AND TradingObligation (must deposit USDC back)
     public fun consume_swap_for_sell<T>(
         authorization: SwapAuthorization,
         asset_vault: &mut AssetVault<T>,
         amount: u64,
         clock: &Clock,
         ctx: &mut TxContext,
-    ): Coin<T> {
+    ): (Coin<T>, TradingObligation) {
         let SwapAuthorization {
             id,
             vault_id,
@@ -267,7 +281,10 @@ module sui_hypersfun::sui_deepbook {
             amount,
         });
 
-        coin::from_balance(withdrawn, ctx)
+        let coin = coin::from_balance(withdrawn, ctx);
+        let obligation = TradingObligation { vault_id, amount_extracted: amount };
+
+        (coin, obligation)
     }
 
     /// Deposit USDC back to vault after selling
@@ -284,6 +301,57 @@ module sui_hypersfun::sui_deepbook {
         event::emit(SwapExecuted {
             vault_id: object::id(vault),
             input_amount: 0, // Will be filled by caller
+            output_amount: amount,
+            is_buy: false,
+        });
+    }
+
+    // ============ Repay Trading Obligation ============
+    // These functions consume the hot potato TradingObligation.
+    // One of these MUST be called in the same PTB, otherwise the TX fails.
+
+    /// Repay obligation after buying base asset (deposit base to AssetVault)
+    public fun repay_obligation_with_base<T>(
+        obligation: TradingObligation,
+        asset_vault: &mut AssetVault<T>,
+        coin: Coin<T>,
+        min_output: u64,
+    ) {
+        let TradingObligation { vault_id, amount_extracted: _ } = obligation;
+        assert!(asset_vault.vault_id == vault_id, E_NOT_AUTHORIZED);
+
+        let amount = coin::value(&coin);
+        assert!(amount >= min_output, E_SLIPPAGE_EXCEEDED);
+
+        let coin_balance = coin::into_balance(coin);
+        balance::join(&mut asset_vault.balance, coin_balance);
+        asset_vault.total_deposited = asset_vault.total_deposited + amount;
+
+        event::emit(AssetDeposited {
+            vault_id,
+            asset_type: asset_vault.asset_type,
+            amount,
+        });
+    }
+
+    /// Repay obligation after selling base asset (deposit USDC back to vault)
+    public fun repay_obligation_with_usdc<USDC>(
+        obligation: TradingObligation,
+        vault: &mut SuiVault<USDC>,
+        coin: Coin<USDC>,
+        min_output: u64,
+    ) {
+        let TradingObligation { vault_id, amount_extracted: _ } = obligation;
+        assert!(vault_id == object::id(vault), E_NOT_AUTHORIZED);
+
+        let amount = coin::value(&coin);
+        assert!(amount >= min_output, E_SLIPPAGE_EXCEEDED);
+
+        sui_vault::deposit_usdc_from_trading(vault, coin);
+
+        event::emit(SwapExecuted {
+            vault_id,
+            input_amount: 0,
             output_amount: amount,
             is_buy: false,
         });
